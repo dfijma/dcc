@@ -176,14 +176,27 @@ void loop() {
   }
  
 // callback for received data
-void receiveData(int byteCount){
-  while (Wire.available()) {
-    buffered = Wire.read();
+void receiveData(int byteCount) {
+  // read a single i2c block data transaction
+  int count = 0;
+  byte buffer[32];
+  
+  while (Wire.available() && count<32) {
+    buffer[count] = Wire.read();
+    count++;
   }
+  Serial.print(count); Serial.print(": ");
+  for (int i=0; i<count; i++) {
+    Serial.print(buffer[i]);
+    Serial.print(" ");
+  }
+  Serial.println();
 }
  
 // callback for sending data
 void sendData(){
-  Wire.write(0);
+  Serial.println("asdf");
+  Wire.write(1);
+  Wire.write(42);
 }
 
