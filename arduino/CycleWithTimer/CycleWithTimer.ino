@@ -12,7 +12,7 @@ volatile byte buffered = B10101010;
 
 volatile byte currentByteProg;
 volatile byte currentBitMaskProg;
-volatile byte bufferedProg = B10101010;
+volatile byte bufferedProg = B01010101;
 
 // DCC signal modulating
 
@@ -89,7 +89,6 @@ void setup() {
   bitSet(TCCR0A,WGM00);    
   bitSet(TCCR0A,WGM01);
   bitSet(TCCR0B,WGM02);
-
        
   // Set OC0B interrupt pin (pin 5) on Compare Match, clear OC0B at BOTTOM (inverting mode)
   bitSet(TCCR0A,COM0B1);
@@ -105,9 +104,12 @@ void setup() {
 
   // enable interrup OC0B
   bitSet(TIMSK0,OCIE0B);
-  
-  currentByte = 170;
+
+  currentByte = buffered;
   currentBitMask = B10000000;
+
+  currentByteProg = bufferedProg;
+  currentBitMaskProg = B10000000;
 }
 
 ISR(TIMER1_COMPB_vect){         
@@ -128,6 +130,8 @@ ISR(TIMER1_COMPB_vect){
     OCR1A=DCC_ZERO_BIT_TOTAL_DURATION_TIMER1;
     OCR1B=DCC_ZERO_BIT_PULSE_DURATION_TIMER1;
   }
+
+  currentBitMask = currentBitMask >> 1;
 
   // if done, take next byte of work
   // for, now a arbitrary byte if we run out of work
@@ -159,6 +163,8 @@ ISR(TIMER0_COMPB_vect){
     OCR0A=DCC_ZERO_BIT_TOTAL_DURATION_TIMER0;
     OCR0B=DCC_ZERO_BIT_PULSE_DURATION_TIMER0;
   }
+
+  currentBitMaskProg = currentBitMaskProg >> 1;
 
   // if done, take next byte of work
   // for, now a arbitrary byte if we run out of work
