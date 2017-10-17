@@ -1,104 +1,115 @@
-#!/usr/bin/env python
-#
 # Raspberry Pi Rotary Encoder Class
 # $Id: rotary_class.py,v 1.2 2014/01/31 13:34:48 bob Exp $
-#
-# Author : Bob Rathbone
-# Site   : http://www.bobrathbone.com
-#
-# This class uses standard rotary encoder with push switch
-# 
-#
+# Based on rotary encoder class with the same name by Bob Rathbone, see
+# http://www.bobrathbone.com
 
 import RPi.GPIO as GPIO
 
 class RotaryEncoder:
+    
+    CLOCKWISE=1
+    ANTICLOCKWISE=2
+    BUTTONDOWN=3
+    BUTTONUP=4
 
-	CLOCKWISE=1
-	ANTICLOCKWISE=2
-	BUTTONDOWN=3
-	BUTTONUP=4
+    START=0
+    ONE=1
+    TWO=2
+    THREE=3
 
-	rotary_a = 0
-	rotary_b = 0
-	rotary_c = 0
-	last_state = 0
-	direction = 0
+    def __init__(self,pinA,pinB,button,callback):
+        self.pinA = pinA
+        self.pinB = pinB
+        self.button = button
+        self.callback = callback
+        self.state = self.START
+        
+        GPIO.setmode(GPIO.BCM)
+        
+        # The following lines enable the internal pull-up resistors
+        # on version 2 (latest) boards
+        GPIO.setwarnings(False)
+        GPIO.setup(self.pinA, GPIO.IN)
+        GPIO.setup(self.pinB, GPIO.IN)
+        GPIO.setup(self.button, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
-	# Initialise rotary encoder object
-	def __init__(self,pinA,pinB,button,callback):
-		self.pinA = pinA
-		self.pinB = pinB
-		self.button = button
-		self.callback = callback
+        # For version 1 (old) boards comment out the above four lines
+        # and un-comment the following 3 lines
+        #GPIO.setup(self.pinA, GPIO.IN)
+        #GPIO.setup(self.pinB, GPIO.IN)
+        #GPIO.setup(self.button, GPIO.IN)
 
-		GPIO.setmode(GPIO.BCM)
-		
-		# The following lines enable the internal pull-up resistors
-		# on version 2 (latest) boards
-		GPIO.setwarnings(False)
-		GPIO.setup(self.pinA, GPIO.IN)
-		GPIO.setup(self.pinB, GPIO.IN)
-		GPIO.setup(self.button, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+        # Add event detection to the GPIO inputs
+        GPIO.add_event_detect(self.pinA, GPIO.BOTH, callback=self.switch_event)
+        GPIO.add_event_detect(self.pinB, GPIO.BOTH, callback=self.switch_event)
+        GPIO.add_event_detect(self.button, GPIO.BOTH, callback=self.button_event, bouncetime=200)
 
-		# For version 1 (old) boards comment out the above four lines
-		# and un-comment the following 3 lines
-		#GPIO.setup(self.pinA, GPIO.IN)
-		#GPIO.setup(self.pinB, GPIO.IN)
-		#GPIO.setup(self.button, GPIO.IN)
+    def emit_rotary_event(self):
+        # if (self.state != self.START):
+        #    print("shortcut in state: "+str(self.state))
+        self.callback(self.direction)
+    
+    def switch_event(self, switch):
+        # read both rotary switches on both edges and feed to state machine
+        self.step(GPIO.input(self.pinA), GPIO.input(self.pinB))
+        
+    # Push button up event
+    def button_event(self,button):
+        if GPIO.input(button): 
+            event = self.BUTTONUP 
+        else:
+            event = self.BUTTONDOWN 
+        self.callback(event)
 
-		# Add event detection to the GPIO inputs
-		GPIO.add_event_detect(self.pinA, GPIO.BOTH, callback=self.switch_event)
-		GPIO.add_event_detect(self.pinB, GPIO.BOTH, callback=self.switch_event)
-		GPIO.add_event_detect(self.button, GPIO.BOTH, callback=self.button_event, bouncetime=200)
-		return
-
-	# Call back routine called by switch events
-	def switch_event(self,switch):
-		if GPIO.input(self.pinA):
-			self.rotary_a = 1
-		else:
-			self.rotary_a = 0
-
-		if GPIO.input(self.pinB):
-			self.rotary_b = 1
-		else:
-			self.rotary_b = 0
-
-		self.rotary_c = self.rotary_a ^ self.rotary_b
-		new_state = self.rotary_a * 4 + self.rotary_b * 2 + self.rotary_c * 1
-		delta = (new_state - self.last_state) % 4
-		self.last_state = new_state
-		event = 0
-
-		if delta == 1:
-			if self.direction == self.CLOCKWISE:
-				# print "Clockwise"
-				event = self.direction
-			else:
-				self.direction = self.CLOCKWISE
-		elif delta == 3:
-			if self.direction == self.ANTICLOCKWISE:
-				# print "Anticlockwise"
-				event = self.direction
-			else:
-				self.direction = self.ANTICLOCKWISE
-		if event > 0:
-			self.callback(event)
-		return
-
-
-	# Push button up event
-	def button_event(self,button):
-		if GPIO.input(button): 
-			event = self.BUTTONUP 
-		else:
-			event = self.BUTTONDOWN 
-		self.callback(event)
-		return
-
-	# Get a switch state
-	def getSwitchState(self, switch):
-		return  GPIO.input(switch)
-
-# End of RotaryEncoder class
+    def step(self, A, B): 
+        # normal right click: 00 10 11 01
+        # normal left click: 00 01 11 10
+        if self.state == self.START:
+            if A == 0 and B == 1:
+                # normal: seen [00,01] of left click
+                self.state = self.ONE
+                self.direction = self.ANTICLOCKWISE
+            elif A == 1 and B == 0:
+                # normal: seen [00,10] of right click
+                self.state = self.ONE
+                self.direction = self.CLOCKWISE
+            # else: ignore repeat 00 or unknown direction 11
+        else:
+            # normalize symbol based on direction:
+            if self.direction == self.CLOCKWISE:
+                symbol = str(A)+str(B)
+            else:
+                symbol = str(B)+str(A)
+            if self.state == self.ONE:
+                if symbol == "11":
+                    # normal, seen 00 10 11
+                    self.state = self.TWO
+                elif symbol == "00":
+                    self.state = self.START # skip TWO and THREE, no event
+                elif symbol == "01": #  skip TWO
+                    self.state = self.THREE
+                # else: ignore repeated 10
+            elif self.state == self.TWO:
+                if symbol == "01":
+                    # normal, seen 00 10 11 01
+                    self.state = self.THREE
+                elif symbol == "00":
+                    self.emit_rotary_event()
+                    self.state = self.START # skip THREE
+                elif symbol == "10":
+                    self.emit_rotary_event()
+                    self.state = self.ONE # skip THREE and START
+                # else: ignore repeated 11    
+            elif self.state == self.THREE:
+                if symbol == "00":
+                    # normal, event and back to start
+                    self.state = self.START
+                    self.emit_rotary_event()
+                elif symbol == "10":
+                    self.emit_rotary_event()
+                    self.state = self.ONE # skip START
+                elif symbol == "11":
+                    self.emit_rotary_event()
+                    self.state = self.TWO # skip ONE and STARt
+                # else: ignore repeated "01"
+        

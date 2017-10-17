@@ -9,7 +9,7 @@
 #
 import sys
 import time
-from my_rotary_switch import RotaryEncoder
+from rotary_switch import RotaryEncoder
 # Define GPIO inputs
 PIN_A = 17 # Pin 8
 PIN_B = 27 # Pin 10
