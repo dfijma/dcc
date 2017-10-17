@@ -1,3 +1,8 @@
+# Raspberry Pi Rotary Encoder Class
+# $Id: rotary_class.py,v 1.2 2014/01/31 13:34:48 bob Exp $
+# Based on rotary encoder class with the same name by Bob Rathbone, see
+# http://www.bobrathbone.com
+
 import RPi.GPIO as GPIO
 
 class RotaryEncoder:
