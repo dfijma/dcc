@@ -1,3 +1,4 @@
+import RPi.GPIO as GPIO
 
 class RotaryEncoder:
     
@@ -45,7 +46,7 @@ class RotaryEncoder:
     
     def switch_event(self, switch):
         # read both rotary switches on both edges and feed to state machine
-        self.step(self.pinA, self.pinB)
+        self.step(GPIO.input(self.pinA), GPIO.input(self.pinB))
         
     # Push button up event
     def button_event(self,button):

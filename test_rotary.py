@@ -18,7 +18,7 @@ BUTTON = 22 # Pin 7
 value = 0
 def switch_event(event):
     global value
-    print ("event: " + str(event))
+    # print ("event: " + str(event))
     if event == RotaryEncoder.CLOCKWISE:
         value = min(value + 1, 126)
     elif event == RotaryEncoder.ANTICLOCKWISE:
@@ -33,8 +33,8 @@ def switch_event(event):
 # Define the switch
 #rswitch = RotaryEncoder(PIN_A,PIN_B,BUTTON,switch_event)
 rswitch = RotaryEncoder(17,27, 22, switch_event)
-#while True:
-#     time.sleep(0.5)
+while True:
+     time.sleep(0.5)
 
 #right
 rswitch.step(1,0)
