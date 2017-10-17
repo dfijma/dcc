@@ -167,7 +167,8 @@ ISR(TIMER0_COMPB_vect) {
 }
  
 void loop() {
-  // main loop is empty
+  // check current 
+  checkCurrent();
 }
 
 // ack data from receive to transmit
@@ -175,7 +176,6 @@ volatile byte ack;
  
 // callback for received data
 void receiveData(int byteCount) {
-  Serial.println("start receive");
   // read a single i2c block data transaction
   int count = 0;
   byte buffer[32];
@@ -193,18 +193,20 @@ void receiveData(int byteCount) {
   }
   Serial.println();
 
-  if (count < 2) return; // no enough data
+  if (count < 3) return; // no enough data
   // Just a basic interface to start:
-  // cmd: direction value: 0..126 or 
-  // data[0]: direction (0 is backwards, != 0 is forward
+  // cmd: slot
+  // data[0]: direction value: 0..126 or 
+  // data[1]: direction (0 is backwards, != 0 is forward
 
   // create a DCC update throttle command
+  byte slot = buffer[0];
   byte b[5]; // max 5 bytes, including checksum byte
   int cab = 3; // TODO: for now, hard coded loc 3
-  int tSpeed =  buffer[0]; // 0..126 
+  int tSpeed =  buffer[1]; // 0..126 
   if (tSpeed < 0) tSpeed = 0;
   if (tSpeed > 126) tSpeed = 126;
-  int tDirection = (buffer[1] != 0); // 1 is forward, 0 is backward
+  int tDirection = (buffer[2] != 0); // 1 is forward, 0 is backward
   byte nB=0;
 
   if(cab>127)
@@ -221,13 +223,10 @@ void receiveData(int byteCount) {
     tSpeed=0;
   }
 
-  Serial.print("set speed bytes : ");
-  for (int i =0; i<nB; i++) {
-    Serial.print(b[i]); Serial.print(" ");
-  }
-  Serial.println();
-
-  updatePacket(b, nB); // which will be silently ignored if refresh buffer has no room
+  Serial.print("set speed ");
+  Serial.println(b[nB-1]);
+  
+  bufferPacket(slot, b, nB); // which will be silently ignored if refresh buffer has no room
 
   ack = 1; // success
 }
@@ -240,68 +239,129 @@ void sendData(){
 // DCC packets and refresh buffer
 
 struct DCCPacket {
-  byte buffer[10];
+  byte buffer[10]; // max 76 bits
   byte bits;
 };
 
-byte idlePacket[3]={0xFF,0x00,0};
-byte testPacket[4] ={0x03, 0x3F, 0x9E}; // just to test, set speed of loco 3 to 0x8F = 15 + 128 = 15 forward of 0x9E = 30 forward
+byte idlePacket[3] = {0xFF, 0x00, 0x00};
+byte testPacket[4] = {0x03, 0x3F, 0x9E, 0x00}; // just to test, set speed of loco 3 to 0x8F = 15 + 128 = 15 forward of 0x9E = 30 forward
 
-struct RefreshRegister {
+struct RefreshSlot {
   DCCPacket packet[2];
   DCCPacket *activePacket;
   DCCPacket *updatePacket;
+  bool inUse;
 };
 
-// for now, a single register
+#define SLOTS 10
+#define IMMEDIATE_QUEUE 10
+
 struct RefreshBuffer {
-  RefreshRegister reg;
+  RefreshSlot refreshSlots[SLOTS]; // the refresh slots
+  DCCPacket immediatePackets[IMMEDIATE_QUEUE];  // the queue for immediate packets
+  byte outImmediate; // first packet to stream from immediateQueue
+  byte inImmediate; // where to queue next immediateQueue packet, thus immediateQueue size = inImmediate - outImmediate
+  // full is represented as inImmediate + 1 = outImmediate, wasting as single cell
+  byte currentSlot; // [0..SLOTS-1] for refresh slot, SLOTS for immediate queue
   byte currentBit;
+  DCCPacket *currentPacket;
 };
 
 volatile RefreshBuffer theBuffer;
 
 void initRefreshBuffer() {
-  // init
-  theBuffer.reg.packet[0].bits = 0;
-  theBuffer.reg.packet[1].bits = 0;
-  theBuffer.reg.activePacket = theBuffer.reg.packet; // first packet is active
-  theBuffer.reg.updatePacket = theBuffer.reg.packet + 1; // second is for update
+  // initially, all refresh slots are free
+  for (int i=0; i<SLOTS; ++i) {
+    theBuffer.refreshSlots[i].inUse = false;
+    theBuffer.refreshSlots[i].packet[0].bits = 0;
+    theBuffer.refreshSlots[i].packet[1].bits = 0;
+    theBuffer.refreshSlots[i].activePacket = theBuffer.refreshSlots[i].packet; // first packet is active, after slot is taking into usage, of course
+    theBuffer.refreshSlots[i].updatePacket = theBuffer.refreshSlots[i].packet + 1; // second is for update
+    theBuffer.refreshSlots[i].activePacket->bits = 0;
+    theBuffer.refreshSlots[i].updatePacket->bits = 0;
+  }
 
-  theBuffer.reg.activePacket->bits = 0;
-  theBuffer.reg.updatePacket->bits = 0;
-  
-  // load an idle packet into activePacket
-  DCCbytesToPacket(idlePacket, 2, theBuffer.reg.activePacket);
+  // and the immediate queue is empty
+  theBuffer.outImmediate = 0;
+  theBuffer.inImmediate = 0;
+
+  // establish invariant, there is always something to stream in the refresh buffer
+  // being it an immediate idle packet when starting up
+  bufferImmediatePacket(idlePacket, 2);
+  // DCCbytesToPacket(idlePacket, 2, theBuffer.reg[0].activePacket);
   // DCCbytesToPacket(testPacket, 3, theBuffer.reg.activePacket);
 
-  // next bit to play is first bit of activePacket
+  // next to play is the idle packet in the immediate buffer
+  theBuffer.currentSlot = SLOTS; 
   theBuffer.currentBit = 0;
+  theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate; // well, the latter being always zero here.
 }
 
-void updatePacket(byte in[], byte nBytes) {
-  if (theBuffer.reg.updatePacket->bits != 0) return; // buffer full, for now, silently ignore
-  DCCbytesToPacket(in, nBytes, theBuffer.reg.updatePacket);
+void bufferPacket(byte slot, byte in[], byte nBytes) {
+  theBuffer.refreshSlots[slot].inUse = true; // TODO: check slot value
+  if (theBuffer.refreshSlots[slot].updatePacket->bits != 0) return; // buffer full, for now, silently ignore
+  DCCbytesToPacket(in, nBytes, theBuffer.refreshSlots[slot].updatePacket);
+}
+
+void bufferImmediatePacket(byte in[], byte nBytes) {
+  byte next = (theBuffer.inImmediate + 1) % IMMEDIATE_QUEUE;
+  if (next == theBuffer.outImmediate) return; // buffer full, for now, silently ignore
+  DCCbytesToPacket(in, nBytes, theBuffer.immediatePackets  + theBuffer.inImmediate);
+  theBuffer.inImmediate = next;
 }
 
 byte mask[] = {0x80,0x40,0x20,0x10,0x08,0x04,0x02,0x01};
 
 boolean nextBit() {
-  if (theBuffer.currentBit == theBuffer.reg.activePacket->bits) {  
-    // all bit is activePacket are done, copy next packet if available
-    if (theBuffer.reg.updatePacket->bits != 0) {
-      Serial.println("load new packet");
-      DCCPacket *tmp = theBuffer.reg.activePacket;
-      theBuffer.reg.activePacket = theBuffer.reg.updatePacket;
-      theBuffer.reg.updatePacket = tmp;
-      // and clear what is now updatePacket
-      theBuffer.reg.updatePacket->bits = 0;
-    } 
-    // and start streaming (new) activePacket or repeat to old activePacket
+  if (theBuffer.currentBit == theBuffer.currentPacket->bits) {  
+    // done steaming the current packet, what is next?
+
+    // look for the next slot to stream from
+    byte oldCurrentSlot = theBuffer.currentSlot;
+
+    // if we were doing a immediate packet, dequeue it now
+    if (oldCurrentSlot == SLOTS) {
+      theBuffer.outImmediate = (theBuffer.outImmediate + 1) % IMMEDIATE_QUEUE;
+    }
+
+    while (true) {
+      theBuffer.currentSlot = (theBuffer.currentSlot + 1) % (SLOTS + 1);
+      if (theBuffer.currentSlot == SLOTS) {
+        // immediate queue is next, anything available?
+        if (theBuffer.inImmediate != theBuffer.outImmediate) {
+          theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate;
+          break; // found!
+        }
+      } else {
+        // update slot is is next, is it in use?
+        if (theBuffer.refreshSlots[theBuffer.currentSlot].inUse) {
+          if (theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket->bits != 0) {
+            DCCPacket *tmp = theBuffer.refreshSlots[theBuffer.currentSlot].activePacket;
+            theBuffer.refreshSlots[theBuffer.currentSlot].activePacket = theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket;
+            theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket = tmp;
+            // and clear what is now updatePacket
+            theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket->bits = 0;
+          } 
+          // and start streaming (new) activePacket or repeat to old activePacket or next buffer
+          theBuffer.currentPacket = theBuffer.refreshSlots[theBuffer.currentSlot].activePacket;
+          break; // found!
+        }
+      }
+      if (theBuffer.currentSlot == oldCurrentSlot) {
+        // we scanned all slots and immediate queue and nothing the buffer, maintain invariant by creating an idle packet
+        bufferImmediatePacket(idlePacket, 2);
+        // and make the it the currentPacket
+        theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate;
+        theBuffer.currentSlot = SLOTS;
+        break; // done!
+      }
+    }
+
+    // start the newly found packet
     theBuffer.currentBit = 0;
   }
 
-  boolean res = theBuffer.reg.activePacket->buffer[theBuffer.currentBit/8] & mask[theBuffer.currentBit%8];
+  boolean res = theBuffer.currentPacket->buffer[theBuffer.currentBit/8] & mask[theBuffer.currentBit%8];
   theBuffer.currentBit++;
   return res;
 }
@@ -355,3 +415,70 @@ void DCCbytesToPacket(byte in[], int nBytes,  struct DCCPacket *packet) {
     } // >4 bytes
   } // >3 bytes
 } 
+
+// checking current on both main and prog tracks
+
+#define CURRENT_SAMPLE_TIME        10
+#define CURRENT_SAMPLE_SMOOTHING   0.01
+#define CURRENT_SAMPLE_MAX         300
+
+#define CURRENT_MONITOR_PIN_MAIN A0
+#define CURRENT_MONITOR_PIN_PROG A1
+
+#define CURRENT_MAIN 0
+#define CURRENT_PROG 1
+  
+long int lastSampleTime = 0;
+
+struct Power {
+  float current[2] = {0.0, 0.0}; 
+  boolean state; // requested state
+  boolean error; // error
+};
+
+volatile struct Power power;
+
+void initPower() {
+  power.state = false;
+  power.error = false;
+  updatePowerView();
+}
+
+void powerOn() {
+  power.state = true;
+  power.error = false;
+}
+
+void powerOff() {
+  power.state = false;
+  power.error = false;
+}
+
+void powerError() {
+  power.error = true;
+  digitalWrite(SPEED_MOTOR_CHANNEL_PIN_A,LOW);                                                     // disable both Motor Shield Channels
+  digitalWrite(SPEED_MOTOR_CHANNEL_PIN_B,LOW);                                                     // regardless of which caused current overload
+}
+
+void checkCurrent() {
+  if (millis()-lastSampleTime<CURRENT_SAMPLE_TIME) return;
+  check(CURRENT_MONITOR_PIN_MAIN, power.current + CURRENT_MAIN);
+  check(CURRENT_MONITOR_PIN_PROG, power.current + CURRENT_PROG);
+  lastSampleTime=millis();                                   // note millis() uses TIMER-0.  For UNO, we change the scale on Timer-0.  For MEGA we do not.  This means CURENT_SAMPLE_TIME is different for UNO then MEGA
+}
+
+void check(int pin, float *current) {
+  (*current) = analogRead(pin)*CURRENT_SAMPLE_SMOOTHING+(*current)*(1.0-CURRENT_SAMPLE_SMOOTHING);        // compute new exponentially-smoothed current
+  // Serial.print("power "); Serial.println(*current);
+  if((*current)>CURRENT_SAMPLE_MAX) {
+    Serial.println("overload, switch off");
+    powerError();
+  }    
+}
+
+void updatePowerView() {
+  // TODO: signal error condition
+  // led power = power.state; // on iff power on
+  // led power error;
+}
+ 
