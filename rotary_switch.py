@@ -37,8 +37,8 @@ class RotaryEncoder:
 		# The following lines enable the internal pull-up resistors
 		# on version 2 (latest) boards
 		GPIO.setwarnings(False)
-		GPIO.setup(self.pinA, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-		GPIO.setup(self.pinB, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+		GPIO.setup(self.pinA, GPIO.IN)
+		GPIO.setup(self.pinB, GPIO.IN)
 		GPIO.setup(self.button, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 		# For version 1 (old) boards comment out the above four lines
@@ -48,8 +48,8 @@ class RotaryEncoder:
 		#GPIO.setup(self.button, GPIO.IN)
 
 		# Add event detection to the GPIO inputs
-		GPIO.add_event_detect(self.pinA, GPIO.FALLING, callback=self.switch_event)
-		GPIO.add_event_detect(self.pinB, GPIO.FALLING, callback=self.switch_event)
+		GPIO.add_event_detect(self.pinA, GPIO.BOTH, callback=self.switch_event)
+		GPIO.add_event_detect(self.pinB, GPIO.BOTH, callback=self.switch_event)
 		GPIO.add_event_detect(self.button, GPIO.BOTH, callback=self.button_event, bouncetime=200)
 		return
 
