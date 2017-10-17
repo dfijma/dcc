@@ -18,30 +18,59 @@ BUTTON = 22 # Pin 7
 value = 0
 def switch_event(event):
     global value
-    print (event)
+    print ("event: " + str(event))
     if event == RotaryEncoder.CLOCKWISE:
         value = min(value + 1, 126)
-        print value
     elif event == RotaryEncoder.ANTICLOCKWISE:
         value = max(value - 1, 0)
-        print value
     elif event == RotaryEncoder.BUTTONDOWN:
          print "Button down"
     elif event == RotaryEncoder.BUTTONUP:
         print "Button up"
+    print("value: " + str(value))
     return
+
 # Define the switch
 #rswitch = RotaryEncoder(PIN_A,PIN_B,BUTTON,switch_event)
-duco = RotaryEncoder(17,27, 22, switch_event)
+rswitch = RotaryEncoder(17,27, 22, switch_event)
 #while True:
 #     time.sleep(0.5)
-duco.step(0,1)
-duco.step(1,1)
-duco.step(1,0)
-duco.step(0,0)
-duco.step(0,1)
-duco.step(1,0)
-duco.step(0,0)
-duco.step(0,1)
-duco.step(1,1)
-duco.step(0,0)
+
+#right
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,1)
+rswitch.step(0,0)
+
+#right
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,1)
+rswitch.step(0,0)
+
+#right
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,1)
+rswitch.step(0,0)
+
+#right with 2nd step missing
+rswitch.step(1,0)
+rswitch.step(0,1)
+rswitch.step(0,0)
+
+#right with 3rd step missing
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,0)
+
+#right with 4th step missing
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,1)
+
+#right
+rswitch.step(1,0)
+rswitch.step(1,1)
+rswitch.step(0,1)
+rswitch.step(0,0)

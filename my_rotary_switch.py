@@ -21,7 +21,7 @@ class RotaryEncoder:
     def event(self):
         if (self.state != self.START):
             print("shortcut in state: "+str(self.state))
-        self.callback(self.state)
+        self.callback(self.direction)
     
     def step(self, A, B): 
         # normal right click: 00 10 11 01
