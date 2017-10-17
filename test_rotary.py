@@ -9,7 +9,7 @@
 #
 import sys
 import time
-from rotary_switch import RotaryEncoder
+from my_rotary_switch import RotaryEncoder
 # Define GPIO inputs
 PIN_A = 17 # Pin 8
 PIN_B = 27 # Pin 10
@@ -18,19 +18,30 @@ BUTTON = 22 # Pin 7
 value = 0
 def switch_event(event):
     global value
+    print (event)
     if event == RotaryEncoder.CLOCKWISE:
         value = min(value + 1, 126)
         print value
     elif event == RotaryEncoder.ANTICLOCKWISE:
-	    value = max(value - 1, 0)
+        value = max(value - 1, 0)
         print value
     elif event == RotaryEncoder.BUTTONDOWN:
- 	    print "Button down"
+         print "Button down"
     elif event == RotaryEncoder.BUTTONUP:
-	    print "Button up"
+        print "Button up"
     return
 # Define the switch
 #rswitch = RotaryEncoder(PIN_A,PIN_B,BUTTON,switch_event)
-duco = RotaryEncoder(17,27, 22,switch_event)
-while True:
-     time.sleep(0.5)
+duco = RotaryEncoder(17,27, 22, switch_event)
+#while True:
+#     time.sleep(0.5)
+duco.step(0,1)
+duco.step(1,1)
+duco.step(1,0)
+duco.step(0,0)
+duco.step(0,1)
+duco.step(1,0)
+duco.step(0,0)
+duco.step(0,1)
+duco.step(1,1)
+duco.step(0,0)

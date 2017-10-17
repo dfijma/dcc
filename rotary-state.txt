@@ -1,0 +1,43 @@
+normal sequence (AB)
+
+RIGHT: 00 10 11 01
+LEFT: 00 01 11 10
+
+START
+  00 -> START // ignore repeat
+  10 -> ONE_RIGHT
+  01 -> ONE_LEFT
+  11 -> START // ignore, we don't know whether we turned RIGHT or LEFT
+  
+ONE_RIGHT (normally seen: [10])
+  00 -> event & START
+  10 -> ONE_RIGHT // ignore repeat
+  01 -> THREE_RIGHT // assume we missed a stoep
+  11 -> TWO_RIGHT
+  
+TWO_RIGHT (normally seen: [10, 11])
+  00 -> event & START // assume right, start again
+  01 -> THREE_RIGHT
+  10 -> event & ONE_RIGHT // assume we missed some stuff
+  11 -> TWO_RIGHT // ignore repeat
+  
+THREE_RIGHT (normally, via [10,11,01])
+  00 -> event & START
+  10 -> event & ONE_RIGHT 
+  01 -> THREE_RIGHT // igore repeat
+  11 -> event TWO_RIGHT 
+  
+ONE_LEFT
+  # mirror of RIGHT 
+  
+TWO_LEFT
+  # mirror of RIGHT 
+  
+THREE_LEFT
+  # mirror of RIGHT 
+
+  
+
+
+
+
