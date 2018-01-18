@@ -1,4 +1,9 @@
 #include <Wire.h>
+#include <LocoNet.h>
+
+// loconet monitor
+
+lnMsg        *LnPacket;
 
 // DCC packets and refresh buffer
 
@@ -26,14 +31,15 @@ struct RefreshSlot {
   bool inUse;
 };
 
-// TODO: PROG TRACK COULD DO WITH LESS THAN 10 SLOTS
 
-#define SLOTS 2
-#define IMMEDIATE_QUEUE 4
+//#define SLOTS 2
+//#define IMMEDIATE_QUEUE 4
 
 struct RefreshBuffer {
-  RefreshSlot refreshSlots[SLOTS]; // the refresh slots
-  DCCPacket immediatePackets[IMMEDIATE_QUEUE];  // the queue for immediate packets
+  byte slots;
+  byte immediate_queue_size;
+  RefreshSlot *refreshSlots; // the refresh slots
+  DCCPacket *immediatePackets;  // the queue for immediate packets
   byte outImmediate; // first packet to stream from immediateQueue
   byte inImmediate; // where to queue next immediateQueue packet, thus immediateQueue size = inImmediate - outImmediate
   // full is represented as inImmediate + 1 = outImmediate, wasting as single cell
@@ -42,9 +48,13 @@ struct RefreshBuffer {
   DCCPacket *currentPacket;
 };
 
-void initRefreshBuffer(struct RefreshBuffer *buffer) {
+void initRefreshBuffer(struct RefreshBuffer *buffer, byte slots, byte immediate_queue_size) {
+  buffer->slots = slots;
+  buffer->immediate_queue_size = immediate_queue_size;
+  buffer->refreshSlots = (RefreshSlot*) malloc(sizeof(RefreshSlot) * slots);
+  buffer->immediatePackets = (DCCPacket*) malloc(sizeof(DCCPacket) * immediate_queue_size);
   // initially, all refresh slots are free
-  for (int i = 0; i < SLOTS; ++i) {
+  for (int i = 0; i < buffer->slots; ++i) {
     buffer->refreshSlots[i].inUse = false;
     buffer->refreshSlots[i].packet[0].bits = 0;
     buffer->refreshSlots[i].packet[1].bits = 0;
@@ -63,7 +73,7 @@ void initRefreshBuffer(struct RefreshBuffer *buffer) {
   bufferImmediatePacket(buffer, idlePacket, 2);
 
   // next to play is the idle packet in the immediate buffer
-  buffer->currentSlot = SLOTS;
+  buffer->currentSlot = buffer->slots;
   buffer->currentBit = 0;
   buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate; // well, the latter being always zero here.
 }
@@ -75,7 +85,7 @@ void bufferPacket(struct RefreshBuffer *buffer, byte slot, byte in[], int nBytes
 }
 
 void bufferImmediatePacket(struct RefreshBuffer *buffer, byte in[], int nBytes) {
-  byte next = (buffer->inImmediate + 1) % IMMEDIATE_QUEUE;
+  byte next = (buffer->inImmediate + 1) % (buffer->immediate_queue_size);
   if (next == buffer->outImmediate) return; // buffer full, for now, silently ignore
   DCCbytesToPacket(in, nBytes, buffer->immediatePackets  + buffer->inImmediate);
   buffer->inImmediate = next;
@@ -91,13 +101,13 @@ boolean nextBit(RefreshBuffer *buffer) {
     byte oldCurrentSlot = buffer->currentSlot;
 
     // if we were doing a immediate packet, dequeue it now
-    if (oldCurrentSlot == SLOTS) {
-      buffer->outImmediate = (buffer->outImmediate + 1) % IMMEDIATE_QUEUE;
+    if (oldCurrentSlot == buffer->slots) {
+      buffer->outImmediate = (buffer->outImmediate + 1) % (buffer->immediate_queue_size);
     }
 
     while (true) {
-      buffer->currentSlot = (buffer->currentSlot + 1) % (SLOTS + 1);
-      if (buffer->currentSlot == SLOTS) {
+      buffer->currentSlot = (buffer->currentSlot + 1) % (buffer->slots + 1);
+      if (buffer->currentSlot == buffer->slots) {
         // immediate queue is next, anything available?
         if (buffer->inImmediate != buffer->outImmediate) {
           buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate;
@@ -124,7 +134,7 @@ boolean nextBit(RefreshBuffer *buffer) {
 
         // and make the it the currentPacket
         buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate;
-        buffer->currentSlot = SLOTS;
+        buffer->currentSlot = buffer->slots;
         break; // done!
       }
     }
@@ -159,8 +169,8 @@ volatile RefreshBuffer progBuffer;
 
 // DCC main signal generated using timer 0 via OC0B interrupt pin (pin 5)
 #define DCC_SIGNAL_PIN_MAIN 5
-// DCC prog signal generated using timer 2 via OC2B interrupt pin (pin 3 (TODO: check pin number))
-#define DCC_SIGNAL_PIN_PROG 3
+// DCC prog signal generated using timer 2 via OC2B interrupt pin (pin 3)
+#define DCC_SIGNAL_PIN_PROG 3 // TODO: this actually conflicts with SPEED_MOTOR_SHIELD_PIN_A
 
 // the DCC signals are, via hardware jumper, fed into direction pin of motor shield, actual direction output pin is to be disabled
 // main signal
@@ -194,11 +204,15 @@ volatile RefreshBuffer progBuffer;
 //     1 bit half cyclse = 14 * 64 ticks / 16Mhz = 56 nanoseconds
 
 void setup() {
+  // serial
   Serial.begin(57600);
 
+  // loconet 
+  LocoNet.init();
+
   // initialize refresh buffers (with an idle packet)
-  initRefreshBuffer(&mainBuffer);
-  initRefreshBuffer(&progBuffer);
+  initRefreshBuffer(&mainBuffer, 10, 3);
+  initRefreshBuffer(&progBuffer, 2, 3);
 
   // initialize i2c as slave
   Wire.begin(SLAVE_ADDRESS);
@@ -240,6 +254,7 @@ void setup() {
   // enable interrup OC0B
   bitSet(TIMSK0, OCIE0B);
 
+  /* TODO: enable prog track once conflict in pin3 solved
   // TOP full cycle, toggle and interrupt at half cycle
   OCR2A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
   OCR2B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
@@ -260,16 +275,20 @@ void setup() {
   
   // enable interrupt OC2B
   bitSet(TIMSK2, OCIE2B);
+  */
 
   // power on
   pinMode(SPEED_MOTOR_CHANNEL_PIN_A, OUTPUT);  // main track power
-  digitalWrite(SPEED_MOTOR_CHANNEL_PIN_A, HIGH);
-  pinMode(BRAKE_MOTOR_CHANNEL_PIN_A, OUTPUT); // release brake
-  digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_A, LOW);
+  pinMode(BRAKE_MOTOR_CHANNEL_PIN_A, OUTPUT);  // main track brake
+  digitalWrite(SPEED_MOTOR_CHANNEL_PIN_A, HIGH); // power on!
+  digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_A, LOW);  // release brake!
+
   pinMode(SPEED_MOTOR_CHANNEL_PIN_B, OUTPUT);  // prog track power
+  pinMode(BRAKE_MOTOR_CHANNEL_PIN_B, OUTPUT);  // prog track brake
+  /* 
   digitalWrite(SPEED_MOTOR_CHANNEL_PIN_B, HIGH);
-  pinMode(BRAKE_MOTOR_CHANNEL_PIN_B, OUTPUT); // release brake
   digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_B, LOW);
+  */
 }
 
 ISR(TIMER0_COMPB_vect) {
@@ -278,7 +297,6 @@ ISR(TIMER0_COMPB_vect) {
   // we can reconfigure timer for next cycle while current cycle is only half way because the relevant registers
   // are double latched (and only really loaded in the actual registers at next time timer flows over from TOP to BOTTOM
   // next bit, please
-  return ;
   if (nextBit(&mainBuffer)) {
     // now we need to sent "1"
     // set OCR0A for next cycle to full cycle of DCC ONE bit
@@ -297,18 +315,15 @@ ISR(TIMER0_COMPB_vect) {
 // code duplication for handler for prog track is intentional
 
 ISR(TIMER2_COMPB_vect) {
-  return ;
-  // prog track idem
+    // prog track idem
     // next bit, please
   if (nextBit(&progBuffer)) {
-    Serial.print("1");
     // now we need to sent "1"
     // set OCR2A for next cycle to full cycle of DCC ONE bit
     // set OCR2B for next cycle to half cycle of DCC ONE bit
     OCR2A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
     OCR2B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
   } else {
-    Serial.print("0");
     // now we need to sent "0"
     // set OCR2A for next cycle to full cycle of DCC ZERO bit
     // set OCR2B for next cycle to half cycle of DCC ZERO bit
@@ -320,6 +335,30 @@ ISR(TIMER2_COMPB_vect) {
 void loop() {
   // check current
   checkCurrent();
+
+  // loconet
+    // Check for any received LocoNet packets
+  LnPacket = LocoNet.receive() ;
+  if ( LnPacket ) {
+    // First print out the packet in HEX
+    Serial.print("RX: ");
+    uint8_t msgLen = getLnMsgSize(LnPacket);
+    for (uint8_t x = 0; x < msgLen; x++)
+    {
+      uint8_t val = LnPacket->data[x];
+      // Print a leading 0 if less than 16 to make 2 HEX digits
+      if (val < 16)
+        Serial.print('0');
+
+      Serial.print(val, HEX);
+      Serial.print(' ');
+    }
+
+    // If this packet was not a Switch or Sensor Message then print a new line
+    if (!LocoNet.processSwitchSensorMessage(LnPacket)) {
+      Serial.println();
+    }
+  } 
 }
 
 // ack data from receive to transmit
@@ -506,5 +545,59 @@ void updatePowerView() {
   // TODO: signal error condition
   // led power = power.state; // on iff power on
   // led power error;
+}
+
+// loconet
+// This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Sensor messages
+void notifySensor( uint16_t Address, uint8_t State ) {
+  Serial.print("Sensor: ");
+  Serial.print(Address, DEC);
+  Serial.print(" - ");
+  Serial.println( State ? "Active" : "Inactive" );
+}
+
+// This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Switch Request messages
+void notifySwitchRequest( uint16_t Address, uint8_t Output, uint8_t Direction ) {
+  Serial.print("Switch Request: ");
+  Serial.print(Address, DEC);
+  Serial.print(':');
+  Serial.print(Direction ? "Closed" : "Thrown");
+  Serial.print(" - ");
+  Serial.println(Output ? "On" : "Off");
+}
+
+// This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Switch Output Report messages
+void notifySwitchOutputsReport( uint16_t Address, uint8_t ClosedOutput, uint8_t ThrownOutput) {
+  Serial.print("Switch Outputs Report: ");
+  Serial.print(Address, DEC);
+  Serial.print(": Closed - ");
+  Serial.print(ClosedOutput ? "On" : "Off");
+  Serial.print(": Thrown - ");
+  Serial.println(ThrownOutput ? "On" : "Off");
+}
+
+// This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Switch Sensor Report messages
+void notifySwitchReport( uint16_t Address, uint8_t State, uint8_t Sensor ) {
+  Serial.print("Switch Sensor Report: ");
+  Serial.print(Address, DEC);
+  Serial.print(':');
+  Serial.print(Sensor ? "Switch" : "Aux");
+  Serial.print(" - ");
+  Serial.println( State ? "Active" : "Inactive" );
+}
+
+// This call-back function is called from LocoNet.processSwitchSensorMessage
+// for all Switch State messages
+void notifySwitchState( uint16_t Address, uint8_t Output, uint8_t Direction ) {
+  Serial.print("Switch State: ");
+  Serial.print(Address, DEC);
+  Serial.print(':');
+  Serial.print(Direction ? "Closed" : "Thrown");
+  Serial.print(" - ");
+  Serial.println(Output ? "On" : "Off");
 }
 
