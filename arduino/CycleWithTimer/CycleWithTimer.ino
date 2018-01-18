@@ -1,5 +1,146 @@
 #include <Wire.h>
 
+// DCC packets and refresh buffer
+
+struct DCCPacket {
+  byte buffer[10]; // max 76 bits
+  byte bits;
+};
+
+static byte idlePacket[3] = {0xFF, 0x00, 0x00}; // 2 bytes, 0 terminated
+
+// TODO: wire this to enable digital loc functions
+int createFunctionPacket(byte buffer[], int cab, byte b) {
+  // high byte cab, low byte cab, 1100 f4f3f2f1 (from byte b)
+  int nB = 0;
+  buffer[nB++] = highByte(cab);
+  buffer[nB++] = lowByte(cab);
+  buffer[nB++] = (b | 0x80); // & 0xBF; // always of form 10xx xxxx
+  return nB;
+}
+
+struct RefreshSlot {
+  DCCPacket packet[2];
+  DCCPacket *activePacket;
+  DCCPacket *updatePacket;
+  bool inUse;
+};
+
+// TODO: PROG TRACK COULD DO WITH LESS THAN 10 SLOTS
+
+#define SLOTS 2
+#define IMMEDIATE_QUEUE 4
+
+struct RefreshBuffer {
+  RefreshSlot refreshSlots[SLOTS]; // the refresh slots
+  DCCPacket immediatePackets[IMMEDIATE_QUEUE];  // the queue for immediate packets
+  byte outImmediate; // first packet to stream from immediateQueue
+  byte inImmediate; // where to queue next immediateQueue packet, thus immediateQueue size = inImmediate - outImmediate
+  // full is represented as inImmediate + 1 = outImmediate, wasting as single cell
+  byte currentSlot; // [0..SLOTS-1] for refresh slot, SLOTS for immediate queue
+  byte currentBit;
+  DCCPacket *currentPacket;
+};
+
+void initRefreshBuffer(struct RefreshBuffer *buffer) {
+  // initially, all refresh slots are free
+  for (int i = 0; i < SLOTS; ++i) {
+    buffer->refreshSlots[i].inUse = false;
+    buffer->refreshSlots[i].packet[0].bits = 0;
+    buffer->refreshSlots[i].packet[1].bits = 0;
+    buffer->refreshSlots[i].activePacket = buffer->refreshSlots[i].packet; // first packet is active, after slot is taking into usage, of course
+    buffer->refreshSlots[i].updatePacket = buffer->refreshSlots[i].packet + 1; // second is for update
+    buffer->refreshSlots[i].activePacket->bits = 0;
+    buffer->refreshSlots[i].updatePacket->bits = 0;
+  }
+
+  // and the immediate queue is empty
+  buffer->outImmediate = 0;
+  buffer->inImmediate = 0;
+
+  // establish invariant, there is always something to stream in the refresh buffer
+  // being it an immediate idle packet when starting up
+  bufferImmediatePacket(buffer, idlePacket, 2);
+
+  // next to play is the idle packet in the immediate buffer
+  buffer->currentSlot = SLOTS;
+  buffer->currentBit = 0;
+  buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate; // well, the latter being always zero here.
+}
+
+void bufferPacket(struct RefreshBuffer *buffer, byte slot, byte in[], int nBytes) {
+  buffer->refreshSlots[slot].inUse = true; // TODO: check slot value
+  if (buffer->refreshSlots[slot].updatePacket->bits != 0) return; // buffer full, for now, silently ignore
+  DCCbytesToPacket(in, nBytes, buffer->refreshSlots[slot].updatePacket);
+}
+
+void bufferImmediatePacket(struct RefreshBuffer *buffer, byte in[], int nBytes) {
+  byte next = (buffer->inImmediate + 1) % IMMEDIATE_QUEUE;
+  if (next == buffer->outImmediate) return; // buffer full, for now, silently ignore
+  DCCbytesToPacket(in, nBytes, buffer->immediatePackets  + buffer->inImmediate);
+  buffer->inImmediate = next;
+}
+
+static byte mask[] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
+
+boolean nextBit(RefreshBuffer *buffer) {
+  if (buffer->currentBit ==  buffer->currentPacket->bits) {
+    // done steaming the current packet, what is next?
+
+    // look for the next slot to stream from
+    byte oldCurrentSlot = buffer->currentSlot;
+
+    // if we were doing a immediate packet, dequeue it now
+    if (oldCurrentSlot == SLOTS) {
+      buffer->outImmediate = (buffer->outImmediate + 1) % IMMEDIATE_QUEUE;
+    }
+
+    while (true) {
+      buffer->currentSlot = (buffer->currentSlot + 1) % (SLOTS + 1);
+      if (buffer->currentSlot == SLOTS) {
+        // immediate queue is next, anything available?
+        if (buffer->inImmediate != buffer->outImmediate) {
+          buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate;
+          break; // found!
+        }
+      } else {
+        // update slot is is next, is it in use?
+        if (buffer->refreshSlots[buffer->currentSlot].inUse) {
+          if (buffer->refreshSlots[buffer->currentSlot].updatePacket->bits != 0) {
+            DCCPacket *tmp = buffer->refreshSlots[buffer->currentSlot].activePacket;
+            buffer->refreshSlots[buffer->currentSlot].activePacket = buffer->refreshSlots[buffer->currentSlot].updatePacket;
+            buffer->refreshSlots[buffer->currentSlot].updatePacket = tmp;
+            // and clear what is now updatePacket
+            buffer->refreshSlots[buffer->currentSlot].updatePacket->bits = 0;
+          }
+          // and start streaming (new) activePacket or repeat to old activePacket or next buffer
+          buffer->currentPacket = buffer->refreshSlots[buffer->currentSlot].activePacket;
+          break; // found!
+        }
+      }
+      if (buffer->currentSlot == oldCurrentSlot) {
+        // we scanned all slots and immediate queue and nothing the buffer, maintain invariant by creating an idle packet
+        bufferImmediatePacket(buffer, idlePacket, 2);
+
+        // and make the it the currentPacket
+        buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate;
+        buffer->currentSlot = SLOTS;
+        break; // done!
+      }
+    }
+
+    // start the newly found packet
+    buffer->currentBit = 0;
+  }
+
+  boolean res = buffer->currentPacket->buffer[buffer->currentBit / 8] & mask[buffer->currentBit % 8];
+  buffer->currentBit++;
+  return res;
+}
+
+volatile RefreshBuffer mainBuffer;
+volatile RefreshBuffer progBuffer;
+
 // i2c used for input
 #define SLAVE_ADDRESS 0x04
 
@@ -11,14 +152,15 @@
 // - timer is programmed to count from 0 to TOP in a period of a full DCC cycle duration (long for a DCC ZERO bit, short for a DCC ONE bit)
 // - after a _half_ cycle, interrupt pin goes from LOW to HIGH, and:
 // - the interrupt itself is handled to reconfigure the timer for the next cycle based on the value of the next input bit
-// - we do this for main track via timer 1 (high resolution timer) and for prog track via timer 0 (low resolution timer)
+// - we do this for main track via timer 0 (low resolution timer) and for prog track via timer 2 (low resolution timer)
+// - original code uses timer1, but that is needed for the LocaNet shield
 // - output timer 0 is fed into motor shield channel A to boost main signal to tracks
-// - output timer 1 is fed into motor shield channel B to boost signal to programming track
+// - output timer 2 is fed into motor shield channel B to boost signal to programming track
 
-// DCC main signal generated using timer 1 via OC1B interrupt pin (pin 10)
-#define DCC_SIGNAL_PIN_MAIN 10
-// DCC prog signal generated using timer 0 via OC0B interrupt pin (pin 5)
-#define DCC_SIGNAL_PIN_PROG 5
+// DCC main signal generated using timer 0 via OC0B interrupt pin (pin 5)
+#define DCC_SIGNAL_PIN_MAIN 5
+// DCC prog signal generated using timer 2 via OC2B interrupt pin (pin 3 (TODO: check pin number))
+#define DCC_SIGNAL_PIN_PROG 3
 
 // the DCC signals are, via hardware jumper, fed into direction pin of motor shield, actual direction output pin is to be disabled
 // main signal
@@ -30,7 +172,7 @@
 #define SPEED_MOTOR_CHANNEL_PIN_B 11
 #define BRAKE_MOTOR_CHANNEL_PIN_B 8
 
-// timer values for generating DCC ZERO and DCC ONE bits (ZERO cycle is 2 * 100 microseconds, ONE cycle is 2 * 58 microseconds)
+// timer values for generating DCC ZERO and DCC ONE bits (ZERO cycle is 2 * 100 nanoseconds, ONE cycle is 2 * 58 microseconds)
 // values for 16 bit timer 1 based on 16Mhz clock and a 1:1 prescale
 #define DCC_ZERO_BIT_TOTAL_DURATION_TIMER1 3199
 #define DCC_ZERO_BIT_PULSE_DURATION_TIMER1 1599
@@ -38,18 +180,25 @@
 #define DCC_ONE_BIT_TOTAL_DURATION_TIMER1 1855
 #define DCC_ONE_BIT_PULSE_DURATION_TIMER1 927
 
-// values for 8 bit timer 0 based on 16Mhz clock and a 1:64 prescale
-#define DCC_ZERO_BIT_TOTAL_DURATION_TIMER0 49
-#define DCC_ZERO_BIT_PULSE_DURATION_TIMER0 24
+// so: 0 bit half cycle =  1599 * 1 ticks / 16 Mhz = 100 nanoseconds
+//     1 bit half cysle = 927 * 1 ticks / 16 Mhz = 58 nanoseconds 
 
-#define DCC_ONE_BIT_TOTAL_DURATION_TIMER0 28
-#define DCC_ONE_BIT_PULSE_DURATION_TIMER0 14
+// values for 8 bit timer 0 (and 2??) based on 16Mhz clock and a 1:64 prescale
+#define DCC_ZERO_BIT_TOTAL_DURATION_TIMER0 49 // exact: 50
+#define DCC_ZERO_BIT_PULSE_DURATION_TIMER0 24 // exact: 25
+
+#define DCC_ONE_BIT_TOTAL_DURATION_TIMER0 28 // exact: 29
+#define DCC_ONE_BIT_PULSE_DURATION_TIMER0 14 // exact: 14,5
+
+// so: 0 bit half cycle = 24 * 64 ticks / 16Mhz = 96 nanoseconds
+//     1 bit half cyclse = 14 * 64 ticks / 16Mhz = 56 nanoseconds
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(57600);
 
-  // initialize refresh buffer (with an idle packet)
-  initRefreshBuffer();
+  // initialize refresh buffers (with an idle packet)
+  initRefreshBuffer(&mainBuffer);
+  initRefreshBuffer(&progBuffer);
 
   // initialize i2c as slave
   Wire.begin(SLAVE_ADDRESS);
@@ -66,37 +215,16 @@ void setup() {
   digitalWrite(DIRECTION_MOTOR_CHANNEL_PIN_B, LOW);
   pinMode(DCC_SIGNAL_PIN_PROG, OUTPUT);
 
-  // configure timer 1 (for DCC main signal), fast PWM from BOTTOM to OCR1A
-  bitSet(TCCR1A, WGM10);
-  bitSet(TCCR1A, WGM11);
-  bitSet(TCCR1B, WGM12);
-  bitSet(TCCR1B, WGM13);
+  //bitClear(PRR, PRTIM0);
+  //bitClear(PRR, PRTIM2);
 
-  // configure timer 1, set OC1B interrupt pin (pin 10) on Compare Match, clear at BOTTOM (inverting mode)
-  bitSet(TCCR1A, COM1B1);
-  bitSet(TCCR1A, COM1B0);
-
-  // configure timer1, set prescale to 1
-  bitClear(TCCR1B, CS12);
-  bitClear(TCCR1B, CS11);
-  bitSet(TCCR1B, CS10);
-
-  // configure timer:
-  // TOP = OCR1A = DCC_ONE_BIT_TOTAL_DURATION_TIMER1
-  // toggle OC1B on 'half' time DCC_ONE_BIT_PULSE_DURATION_TIMER1
-  OCR1A = DCC_ONE_BIT_TOTAL_DURATION_TIMER1;
-  OCR1B = DCC_ONE_BIT_PULSE_DURATION_TIMER1;
-
-  // finally, configure interrupt
-  bitSet(TIMSK1, OCIE1B);
-
-  // same idea for timer 0 for prog track
+  // configure timer 0 (for DCC main signal), fast PWM from BOTTOM to TOP == OCR0A
   // fast PWM
   bitSet(TCCR0A, WGM00);
   bitSet(TCCR0A, WGM01);
   bitSet(TCCR0B, WGM02);
 
-  // set OC0B interrupt pin (pin 5) on Compare Match, clear at BOTTOM (inverting mode)
+  // set OC0B interrupt pin (pin 5) on Compare Match == OCR0B, clear at BOTTOM (inverting mode)
   bitSet(TCCR0A, COM0B1);
   bitSet(TCCR0A, COM0B0);
 
@@ -112,6 +240,27 @@ void setup() {
   // enable interrup OC0B
   bitSet(TIMSK0, OCIE0B);
 
+  // TOP full cycle, toggle and interrupt at half cycle
+  OCR2A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
+  OCR2B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
+  
+  // configure time 2 (for DCC prog signal), fast OWM from BOTTOM to TOP == OCR2A
+  bitSet(TCCR2A, WGM20);
+  bitSet(TCCR2A, WGM21);
+  bitSet(TCCR2B, WGM22);
+
+  // set OC2B interrupt (pin 3??) on Compare Match = 0CR2B, clear at Bottom (inverting mode)
+  bitSet(TCCR2A, COM2B1);
+  bitSet(TCCR2A, COM2B0);
+
+  // prescale = 64
+  bitSet(TCCR2B, CS22);
+  bitClear(TCCR2B, CS01);
+  bitClear(TCCR2B, CS00);
+  
+  // enable interrupt OC2B
+  bitSet(TIMSK2, OCIE2B);
+
   // power on
   pinMode(SPEED_MOTOR_CHANNEL_PIN_A, OUTPUT);  // main track power
   digitalWrite(SPEED_MOTOR_CHANNEL_PIN_A, HIGH);
@@ -123,46 +272,48 @@ void setup() {
   digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_B, LOW);
 }
 
-ISR(TIMER1_COMPB_vect) {
+ISR(TIMER0_COMPB_vect) {
   // actual DCC output is handled by timer hardware (flipping from LOW to HIGH at half cycle)
   // when handling the interrupt itself, the only way we need to do is reconfigure timer for next cycle
   // we can reconfigure timer for next cycle while current cycle is only half way because the relevant registers
   // are double latched (and only really loaded in the actual registers at next time timer flows over from TOP to BOTTOM
-
   // next bit, please
-  if (nextBit()) {
+  return ;
+  if (nextBit(&mainBuffer)) {
     // now we need to sent "1"
-    // set OCR1A for next cycle to full cycle of DCC ONE bit
-    // set OCR1B for next cycle to half cycle of DCC ONE bit
-    OCR1A = DCC_ONE_BIT_TOTAL_DURATION_TIMER1;
-    OCR1B = DCC_ONE_BIT_PULSE_DURATION_TIMER1;
+    // set OCR0A for next cycle to full cycle of DCC ONE bit
+    // set OCR0B for next cycle to half cycle of DCC ONE bit
+    OCR0A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
+    OCR0B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
   } else {
-    // now we need to sent "1"
-    // set OCR1A for next cycle to full cycle of DCC ZERO bit
-    // set OCR1B for next cycle to half cycle of DCC ZERO bit
-    OCR1A = DCC_ZERO_BIT_TOTAL_DURATION_TIMER1;
-    OCR1B = DCC_ZERO_BIT_PULSE_DURATION_TIMER1;
+    // now we need to sent "0"
+    // set OCR0A for next cycle to full cycle of DCC ZERO bit
+    // set OCR0B for next cycle to half cycle of DCC ZERO bit
+    OCR0A = DCC_ZERO_BIT_TOTAL_DURATION_TIMER0;
+    OCR0B = DCC_ZERO_BIT_PULSE_DURATION_TIMER0;
   }
 }
 
 // code duplication for handler for prog track is intentional
 
-ISR(TIMER0_COMPB_vect) {
-  // idea is exactly the same
-
-  // next bit, please
-  if (true /* todo: a prog track buffer */) {
+ISR(TIMER2_COMPB_vect) {
+  return ;
+  // prog track idem
+    // next bit, please
+  if (nextBit(&progBuffer)) {
+    Serial.print("1");
     // now we need to sent "1"
-    // set OCR1A for next cycle to full cycle of DCC ONE bit
-    // set OCR1B for next cycle to half cycle of DCC ONE bit
-    OCR0A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
-    OCR0B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
+    // set OCR2A for next cycle to full cycle of DCC ONE bit
+    // set OCR2B for next cycle to half cycle of DCC ONE bit
+    OCR2A = DCC_ONE_BIT_TOTAL_DURATION_TIMER0;
+    OCR2B = DCC_ONE_BIT_PULSE_DURATION_TIMER0;
   } else {
-    // now we need to sent "1"
-    // set OCR1A for next cycle to full cycle of DCC ZERO bit
-    // set OCR1B for next cycle to half cycle of DCC ZERO bit
-    OCR0A = DCC_ZERO_BIT_TOTAL_DURATION_TIMER0;
-    OCR0B = DCC_ZERO_BIT_PULSE_DURATION_TIMER0;
+    Serial.print("0");
+    // now we need to sent "0"
+    // set OCR2A for next cycle to full cycle of DCC ZERO bit
+    // set OCR2B for next cycle to half cycle of DCC ZERO bit
+    OCR2A = DCC_ZERO_BIT_TOTAL_DURATION_TIMER0;
+    OCR2B = DCC_ZERO_BIT_PULSE_DURATION_TIMER0;
   }
 }
 
@@ -226,7 +377,7 @@ void receiveData(int byteCount) {
   Serial.print("set speed ");
   Serial.println(b[nB - 1]);
 
-  bufferPacket(slot, b, nB); // which will be silently ignored if refresh buffer has no room
+  bufferPacket(&mainBuffer, slot, b, nB); // which will be silently ignored if refresh buffer has no room
 
   ack = 1; // success
 }
@@ -236,143 +387,7 @@ void sendData() {
   // Wire.write(ack);
 }
 
-// DCC packets and refresh buffer
 
-struct DCCPacket {
-  byte buffer[10]; // max 76 bits
-  byte bits;
-};
-
-byte idlePacket[3] = {0xFF, 0x00, 0x00};
-
-// TODO: wire this to enable digitial loc functions
-int createFunctionPacket(byte buffer[], int cab, byte b) {
-  // high byte cab, low byte cab, 1100 f4f3f2f1 (from byte b)
-  int nB = 0;
-  buffer[nB++] = highByte(cab);
-  buffer[nB++] = lowByte(cab);
-  buffer[nB++] = (b | 0x80); // & 0xBF; // always of form 10xx xxxx
-  return nB;
-}
-
-struct RefreshSlot {
-  DCCPacket packet[2];
-  DCCPacket *activePacket;
-  DCCPacket *updatePacket;
-  bool inUse;
-};
-
-#define SLOTS 10
-#define IMMEDIATE_QUEUE 10
-
-struct RefreshBuffer {
-  RefreshSlot refreshSlots[SLOTS]; // the refresh slots
-  DCCPacket immediatePackets[IMMEDIATE_QUEUE];  // the queue for immediate packets
-  byte outImmediate; // first packet to stream from immediateQueue
-  byte inImmediate; // where to queue next immediateQueue packet, thus immediateQueue size = inImmediate - outImmediate
-  // full is represented as inImmediate + 1 = outImmediate, wasting as single cell
-  byte currentSlot; // [0..SLOTS-1] for refresh slot, SLOTS for immediate queue
-  byte currentBit;
-  DCCPacket *currentPacket;
-};
-
-volatile RefreshBuffer theBuffer;
-
-void initRefreshBuffer() {
-  // initially, all refresh slots are free
-  for (int i = 0; i < SLOTS; ++i) {
-    theBuffer.refreshSlots[i].inUse = false;
-    theBuffer.refreshSlots[i].packet[0].bits = 0;
-    theBuffer.refreshSlots[i].packet[1].bits = 0;
-    theBuffer.refreshSlots[i].activePacket = theBuffer.refreshSlots[i].packet; // first packet is active, after slot is taking into usage, of course
-    theBuffer.refreshSlots[i].updatePacket = theBuffer.refreshSlots[i].packet + 1; // second is for update
-    theBuffer.refreshSlots[i].activePacket->bits = 0;
-    theBuffer.refreshSlots[i].updatePacket->bits = 0;
-  }
-
-  // and the immediate queue is empty
-  theBuffer.outImmediate = 0;
-  theBuffer.inImmediate = 0;
-
-  // establish invariant, there is always something to stream in the refresh buffer
-  // being it an immediate idle packet when starting up
-  bufferImmediatePacket(idlePacket, 2);
-
-  // next to play is the idle packet in the immediate buffer
-  theBuffer.currentSlot = SLOTS;
-  theBuffer.currentBit = 0;
-  theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate; // well, the latter being always zero here.
-}
-
-void bufferPacket(byte slot, byte in[], byte nBytes) {
-  theBuffer.refreshSlots[slot].inUse = true; // TODO: check slot value
-  if (theBuffer.refreshSlots[slot].updatePacket->bits != 0) return; // buffer full, for now, silently ignore
-  DCCbytesToPacket(in, nBytes, theBuffer.refreshSlots[slot].updatePacket);
-}
-
-void bufferImmediatePacket(byte in[], byte nBytes) {
-  byte next = (theBuffer.inImmediate + 1) % IMMEDIATE_QUEUE;
-  if (next == theBuffer.outImmediate) return; // buffer full, for now, silently ignore
-  DCCbytesToPacket(in, nBytes, theBuffer.immediatePackets  + theBuffer.inImmediate);
-  theBuffer.inImmediate = next;
-}
-
-byte mask[] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
-
-boolean nextBit() {
-  if (theBuffer.currentBit == theBuffer.currentPacket->bits) {
-    // done steaming the current packet, what is next?
-
-    // look for the next slot to stream from
-    byte oldCurrentSlot = theBuffer.currentSlot;
-
-    // if we were doing a immediate packet, dequeue it now
-    if (oldCurrentSlot == SLOTS) {
-      theBuffer.outImmediate = (theBuffer.outImmediate + 1) % IMMEDIATE_QUEUE;
-    }
-
-    while (true) {
-      theBuffer.currentSlot = (theBuffer.currentSlot + 1) % (SLOTS + 1);
-      if (theBuffer.currentSlot == SLOTS) {
-        // immediate queue is next, anything available?
-        if (theBuffer.inImmediate != theBuffer.outImmediate) {
-          theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate;
-          break; // found!
-        }
-      } else {
-        // update slot is is next, is it in use?
-        if (theBuffer.refreshSlots[theBuffer.currentSlot].inUse) {
-          if (theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket->bits != 0) {
-            DCCPacket *tmp = theBuffer.refreshSlots[theBuffer.currentSlot].activePacket;
-            theBuffer.refreshSlots[theBuffer.currentSlot].activePacket = theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket;
-            theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket = tmp;
-            // and clear what is now updatePacket
-            theBuffer.refreshSlots[theBuffer.currentSlot].updatePacket->bits = 0;
-          }
-          // and start streaming (new) activePacket or repeat to old activePacket or next buffer
-          theBuffer.currentPacket = theBuffer.refreshSlots[theBuffer.currentSlot].activePacket;
-          break; // found!
-        }
-      }
-      if (theBuffer.currentSlot == oldCurrentSlot) {
-        // we scanned all slots and immediate queue and nothing the buffer, maintain invariant by creating an idle packet
-        bufferImmediatePacket(idlePacket, 2);
-
-        // and make the it the currentPacket
-        theBuffer.currentPacket = theBuffer.immediatePackets + theBuffer.outImmediate;
-        theBuffer.currentSlot = SLOTS;
-        break; // done!
-      }
-    }
-
-    // start the newly found packet
-    theBuffer.currentBit = 0;
-  }
-
-  boolean res = theBuffer.currentPacket->buffer[theBuffer.currentBit / 8] & mask[theBuffer.currentBit % 8];
-  theBuffer.currentBit++;
-  return res;
-}
 
 /*
    3 bytes:
@@ -388,11 +403,14 @@ boolean nextBit() {
 
 */
 
+
+// in should be of length nBytes + 1, that is, have room for checksum byte
 void DCCbytesToPacket(byte in[], int nBytes, struct DCCPacket *packet) {
   byte *out = packet->buffer;
   in[nBytes] = in[0];                      // copy first byte into what will become the checksum byte
-  for (int i = 1; i < nBytes; i++)       // XOR remaining bytes into checksum byte
+  for (int i = 1; i < nBytes; i++) {      // XOR remaining bytes into checksum byte
     in[nBytes] ^= in[i];
+  }
   nBytes++;                              // increment number of bytes in packet to include checksum byte
 
   out[0] = 0xFF;                       // first 8 bits of 22-byte preamble
