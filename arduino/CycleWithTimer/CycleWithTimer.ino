@@ -10,17 +10,21 @@ lnMsg        *LnPacket;
 struct DCCPacket {
   byte buffer[10]; // max 76 bits
   byte bits;
+  byte tag;
 };
 
-static byte idlePacket[3] = {0xFF, 0x00, 0x00}; // 2 bytes, 0 terminated
+static byte idlePacket[3] = {0xFF, 0x00, 0x00}; // 2 bytes, 1 byte room for cs
 
 // TODO: wire this to enable digital loc functions
 int createFunctionPacket(byte buffer[], int cab, byte b) {
   // high byte cab, low byte cab, 1100 f4f3f2f1 (from byte b)
   int nB = 0;
-  buffer[nB++] = highByte(cab);
+  if (cab > 127) {
+    buffer[nB++] = highByte(cab) | 0xC0;    // convert train number into a two-byte address
+  }
   buffer[nB++] = lowByte(cab);
-  buffer[nB++] = (b | 0x80); // & 0xBF; // always of form 10xx xxxx
+  buffer[nB++] = b;
+  buffer[nB] = 0; // space for cs, not counted
   return nB;
 }
 
@@ -58,10 +62,14 @@ void initRefreshBuffer(struct RefreshBuffer *buffer, byte slots, byte immediate_
     buffer->refreshSlots[i].inUse = false;
     buffer->refreshSlots[i].packet[0].bits = 0;
     buffer->refreshSlots[i].packet[1].bits = 0;
+    buffer->refreshSlots[i].packet[0].tag = (i*2);
+    buffer->refreshSlots[i].packet[1].tag = (i*2) + 1;
     buffer->refreshSlots[i].activePacket = buffer->refreshSlots[i].packet; // first packet is active, after slot is taking into usage, of course
     buffer->refreshSlots[i].updatePacket = buffer->refreshSlots[i].packet + 1; // second is for update
-    buffer->refreshSlots[i].activePacket->bits = 0;
-    buffer->refreshSlots[i].updatePacket->bits = 0;
+  }
+  for (int i=0; i < immediate_queue_size; i++) {
+    buffer->immediatePackets[i].bits = 0;
+    buffer->immediatePackets[i].tag = (slots*2) + i;
   }
 
   // and the immediate queue is empty
@@ -76,11 +84,15 @@ void initRefreshBuffer(struct RefreshBuffer *buffer, byte slots, byte immediate_
   buffer->currentSlot = buffer->slots;
   buffer->currentBit = 0;
   buffer->currentPacket = buffer->immediatePackets + buffer->outImmediate; // well, the latter being always zero here.
+  Serial.print("very first packet has tag: "); Serial.println(buffer->currentPacket->tag);
+
 }
 
 void bufferPacket(struct RefreshBuffer *buffer, byte slot, byte in[], int nBytes) {
   buffer->refreshSlots[slot].inUse = true; // TODO: check slot value
-  if (buffer->refreshSlots[slot].updatePacket->bits != 0) return; // buffer full, for now, silently ignore
+  if (buffer->refreshSlots[slot].updatePacket->bits != 0) {
+    // buffer full, for now, silently ignore
+  }
   DCCbytesToPacket(in, nBytes, buffer->refreshSlots[slot].updatePacket);
 }
 
@@ -94,6 +106,7 @@ void bufferImmediatePacket(struct RefreshBuffer *buffer, byte in[], int nBytes) 
 static byte mask[] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
 
 boolean nextBit(RefreshBuffer *buffer) {
+  byte oldTag = buffer->currentPacket->tag;
   if (buffer->currentBit ==  buffer->currentPacket->bits) {
     // done steaming the current packet, what is next?
 
@@ -114,7 +127,7 @@ boolean nextBit(RefreshBuffer *buffer) {
           break; // found!
         }
       } else {
-        // update slot is is next, is it in use?
+        // update slot is is next, is it in use?        
         if (buffer->refreshSlots[buffer->currentSlot].inUse) {
           if (buffer->refreshSlots[buffer->currentSlot].updatePacket->bits != 0) {
             DCCPacket *tmp = buffer->refreshSlots[buffer->currentSlot].activePacket;
@@ -139,6 +152,9 @@ boolean nextBit(RefreshBuffer *buffer) {
       }
     }
 
+    if (oldTag != buffer->currentPacket->tag) {
+      Serial.print("switching to packet with tag: "); Serial.println(buffer->currentPacket->tag);
+    }
     // start the newly found packet
     buffer->currentBit = 0;
   }
@@ -211,7 +227,7 @@ void setup() {
   LocoNet.init();
 
   // initialize refresh buffers (with an idle packet)
-  initRefreshBuffer(&mainBuffer, 10, 3);
+  initRefreshBuffer(&mainBuffer, 2, 10);
   initRefreshBuffer(&progBuffer, 2, 3);
 
   // initialize i2c as slave
@@ -283,9 +299,10 @@ void setup() {
   digitalWrite(SPEED_MOTOR_CHANNEL_PIN_A, HIGH); // power on!
   digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_A, LOW);  // release brake!
 
+  /*   
   pinMode(SPEED_MOTOR_CHANNEL_PIN_B, OUTPUT);  // prog track power
   pinMode(BRAKE_MOTOR_CHANNEL_PIN_B, OUTPUT);  // prog track brake
-  /* 
+  somehow BRAKE_B conflicts with LocoNet lib
   digitalWrite(SPEED_MOTOR_CHANNEL_PIN_B, HIGH);
   digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_B, LOW);
   */
@@ -376,7 +393,7 @@ void receiveData(int byteCount) {
     if (count < 32) buffer[count] = b;
     count++;
   }
-  Serial.print("receive: "); Serial.print(count); Serial.print(": ");
+  Serial.print("command receive: "); Serial.print(count); Serial.print(": ");
   for (int i = 0; i < count; i++) {
     Serial.print(buffer[i]);
     Serial.print(" ");
@@ -390,7 +407,7 @@ void receiveData(int byteCount) {
   // data[1]: direction (0 is backwards, != 0 is forward
 
   // create a DCC update throttle command
-  byte slot = 1; // for now, hardcoded
+  byte slot = 0; // for now, hardcoded
   byte b[5]; // max 5 bytes, including checksum byte
   int cab = 3; // TODO: for now, hard coded loc 3
   int tSpeed =  buffer[0]; // 0..126
@@ -413,10 +430,16 @@ void receiveData(int byteCount) {
     tSpeed = 0;
   }
 
-  Serial.print("set speed ");
+  Serial.print("set speed: ");
   Serial.println(b[nB - 1]);
 
   bufferPacket(&mainBuffer, slot, b, nB); // which will be silently ignored if refresh buffer has no room
+
+  // and an headlight (3x)
+  nB = createFunctionPacket(b, cab, 0b10010000);
+  bufferImmediatePacket(&mainBuffer, b, nB);
+  bufferImmediatePacket(&mainBuffer, b, nB);
+  bufferImmediatePacket(&mainBuffer, b, nB);
 
   ack = 1; // success
 }
