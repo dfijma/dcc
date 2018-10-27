@@ -1,7 +1,5 @@
 #pragma once
 
-#define TESTING
-
 // DCC signal modulating
 
 // basic idea is as follows:
@@ -54,3 +52,7 @@
 
 #define CURRENT_MONITOR_PIN_MAIN A0
 #define CURRENT_MONITOR_PIN_PROG A1
+
+
+//// i2c 
+#define SLAVE_ADDRESS 0x04

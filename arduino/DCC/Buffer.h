@@ -79,13 +79,14 @@ class Slot : public BitStream {
 class Buffer {
   public:
     Buffer();
-    Slot& slot(byte s) { return slots[s]; }
+    Slot& slot(byte s);
     bool nextBit(); // 
 #ifdef TESTING
     bool test(); // collect all bits and try to decode
 #endif
   
   private:
+    byte brk; 
     Slot slots[SLOTS]; // some SLOTS, initially active packet is an idle cmd and update packet is empty
     byte currentSlot;
     byte currentBit;

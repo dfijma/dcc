@@ -235,9 +235,15 @@ Buffer::Buffer() {
     slots[i].update().withIdleCmd();
     slots[i].flip();
   }
+  brk = 1; // at least one slot in use 
   // this is a valid bit, because we have all these idle cmds:
   currentSlot = 0;
   currentBit = 0;
+}
+
+Slot& Buffer::slot(byte s) {
+  if (s >= brk) brk = s+1;
+  return slots[s]; 
 }
 
 bool Buffer::nextBit() {
@@ -245,10 +251,12 @@ bool Buffer::nextBit() {
   currentBit++;
   if (currentBit >= slots[currentSlot].length()) {
     // next slot
-    currentSlot = (currentSlot + 1) % SLOTS;
+    currentSlot = (currentSlot + 1) % brk;
     slots[currentSlot].flip(); // if there is an update, flip into active
     currentBit = 0; // this assneumes that the slot is not empty!
+    //Serial.println();
   }  
+  //Serial.print(res);
   return res;
 }
 

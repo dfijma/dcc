@@ -56,6 +56,6 @@ void Current::check() {
   check(CURRENT_MONITOR_PIN_MAIN, 0);
   check(CURRENT_MONITOR_PIN_PROG, 1);
   lastSampleTime = millis();                                 // note millis() uses TIMER-0.  For UNO, we change the scale on Timer-0.  For MEGA we do not.  This means CURENT_SAMPLE_TIME is different for UNO then MEGA
-  // Serial.print(lastSampleTime); Serial.print(" "); Serial.println(value[0]);
+  // Serial.print(lastSampleTime); Serial.print(" "); Serial.println(value[0] / 1024.0 * 5.0 / 3.3 * 2000);
 }
 

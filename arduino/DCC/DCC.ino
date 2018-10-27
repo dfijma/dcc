@@ -1,6 +1,7 @@
 #include "Config.h"
 #include "Buffer.h"
 #include "Current.h"
+#include "I2C.h"
 
 // The current monitor
 Current current;
@@ -153,6 +154,18 @@ ISR(TIMER2_COMPB_vect) {
 }
 */
 
+long last = 0;
+bool direction = false;
+
+void update(bool direction) {
+  buffer.slot(0).update().withThrottleCmd(3, 0, direction, false);
+  buffer.slot(0).update().withF1Cmd(3, 0b00011111);
+  buffer.slot(0).flip();
+  buffer.slot(1).update().withThrottleCmd(4, 0, direction, false);
+  buffer.slot(1).update().withF1Cmd(4, 0b00011111);
+  buffer.slot(1).flip();
+} 
+
 void setup() {
   Serial.begin(57600);
 #ifdef TESTING
@@ -161,13 +174,19 @@ void setup() {
   // buffer.slot(0).update().withThrottleCmd(1000, 100, true, 0);
   // buffer.test();  
 #endif  
-  buffer.slot(0).update().withThrottleCmd(3, 0, true, false);
-  buffer.slot(0).update().withF1Cmd(3, 0b00011111);
-  buffer.slot(0).flip();
+  update(direction);
   setupDCC();
+  I2C_setup();
   current.on();
+  Serial.println("hola");
 }
 
 void loop() {
-  current.check(); // check current 
+  long now = millis();
+  if ((now - last) > 10000) {
+    last = now;
+    direction = !direction;
+    // update(direction);
+  }
+  current.check(); // check current   
 }
