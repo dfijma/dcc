@@ -2,6 +2,7 @@
 #include "Buffer.h"
 #include "Current.h"
 #include "I2C.h"
+#include <LocoNet.h>
 
 // The current monitor
 Current current;
@@ -107,8 +108,6 @@ void setupDCC() {
   // enable interrupt OC2B
   bitSet(TIMSK2, OCIE2B);
   */
-
-
 }
 
 ISR(TIMER0_COMPB_vect) {
@@ -155,8 +154,8 @@ ISR(TIMER2_COMPB_vect) {
 */
 
 long last = 0;
-bool direction = false;
 
+/*
 void update(bool direction) {
   buffer.slot(0).update().withThrottleCmd(3, 0, direction, false);
   buffer.slot(0).update().withF1Cmd(3, 0b00011111);
@@ -165,28 +164,177 @@ void update(bool direction) {
   buffer.slot(1).update().withF1Cmd(4, 0b00011111);
   buffer.slot(1).flip();
 } 
+*/
+
+// cmd execution
+
+void setSlot(int slot, int speed, int dir, int fns) {
+  if (slot >= SLOTS) {
+    Serial.println("ERROR:slot max");
+    return;
+  }
+  if (speed > 127) {
+    Serial.println("ERROR:speed invalid");
+    return;
+  }
+  Serial.print("OK:SLOT="); Serial.print(slot); Serial.print(",SPEED=" ); Serial.print(speed); Serial.print(",DIR="); Serial.print(dir); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
+}
+
+void sendLoconet(byte bs[], int len) {
+   Serial.print("OK:LOCONET="); for (int i=0; i<len; ++i) { Serial.print(bs[i]); Serial.print(" "); } Serial.println(); 
+}
+
+// cmd parsing
+byte cmdBuffer[80];
+int cmdLength=0;
+
+boolean parseHexDigit(int& res, byte*& cmd) {
+  byte b = *cmd;
+  if (b>='0' && b<='9') {
+    res = b-'0';
+    cmd++;
+    return true;
+  } else if (b>='a' && b<='f') {
+    res = b-'a' + 10;
+    cmd++;
+    return true;
+  } else if (b>='A' && b<='F') {
+    res = b-'A'+10;
+    cmd++;
+    return true;
+  }
+  return false;
+}
+
+boolean parseHexByte(int &res, byte*& cmd) {
+  int b1;
+  if (!parseHexDigit(b1, cmd)) return false;
+  if (!parseHexDigit(res, cmd)) return false;
+  res = b1*16 + res; return true;
+}
+
+boolean parseDigit(int& res, byte* &cmd, byte m='9') {
+  byte b = *cmd;
+  if (b>='0' && b<=m) {
+    cmd++;
+    res = b - '0';
+    return true;
+  }
+  return false;
+}
+
+boolean skipWhiteSpace(byte*& cmd) {
+  while ((*cmd) == ' ') cmd++;
+}
+
+boolean parseNumber(int& res, byte*& cmd) {
+  if (!parseDigit(res, cmd)) return false;
+  int next;
+  while (parseDigit(next, cmd)) { res = res*10 + next; }
+  return true;
+}
+
+void parse(byte *cmd) {
+  if (*cmd == 'S') {
+    cmd++;
+    int slot;
+    int speed;
+    skipWhiteSpace(cmd);
+    if (!parseNumber(slot, cmd)) {
+      Serial.println("ERROR:no slot");
+      return;
+    }
+    skipWhiteSpace(cmd);
+    if (!parseNumber(speed, cmd)) {
+      Serial.println("ERROR:no speed");
+      return;
+    }
+    skipWhiteSpace(cmd);
+    int dir;
+    if (!parseDigit(dir, cmd, '1')) {
+      Serial.println("ERROR:no dir");
+      return;
+    }
+    int fn;
+    int fns = 0;
+    int ifns = 0;
+    skipWhiteSpace(cmd);
+    while (ifns < 13 && parseDigit(fn, cmd, '1')) { skipWhiteSpace(cmd); fns = (fns<<1) | fn; ifns++; }
+    fns = fns << (13-ifns);
+    if (*cmd != 0) {
+      Serial.println("ERROR:extra chars");
+      return;
+    }
+    setSlot(slot, speed, dir, fns);
+  } else if (*cmd == 'L') {
+    cmd++;
+    byte buffer[127];
+    int len=0;
+    skipWhiteSpace(cmd);
+    int lb;
+    while (len < 127 && parseHexByte(lb, cmd)) { skipWhiteSpace(cmd); buffer[len++] = lb; };
+    if (*cmd != 0) {
+      Serial.println("ERROR:extra chars");
+      return;
+    }
+    sendLoconet(buffer, len);
+  } else {
+    Serial.println("ERROR: no cmd");
+  }
+}
+
+// loconet stuff
+lnMsg *LnPacket;
 
 void setup() {
   Serial.begin(57600);
+  LocoNet.init();
 #ifdef TESTING
   // testPacket();
   // testSlot();
   // buffer.slot(0).update().withThrottleCmd(1000, 100, true, 0);
   // buffer.test();  
 #endif  
-  update(direction);
   setupDCC();
   I2C_setup();
   current.on();
-  Serial.println("hola");
+  Serial.println("HELO");
 }
 
 void loop() {
-  long now = millis();
-  if ((now - last) > 10000) {
-    last = now;
-    direction = !direction;
-    // update(direction);
+
+  // parse and execute received serial data
+  while (Serial.available()) {
+    byte b = Serial.read();
+    if (b == '\r') continue; // bye windows
+    if (b == '\n') {
+      // EOL, parse it
+      cmdBuffer[cmdLength++] = '\0';
+      parse(cmdBuffer);
+      cmdLength = 0;
+      continue;
+    }
+
+    // buffer byte, if room for it
+    if (cmdLength < (sizeof(cmdBuffer)-1)) {
+      cmdBuffer[cmdLength] = b;
+      cmdLength++;
+    }   
   }
+
+  // receive loconet packages and send through serial port
+  LnPacket = LocoNet.receive() ;
+  if (LnPacket) {
+    uint8_t msgLen = getLnMsgSize(LnPacket);
+    for (uint8_t x = 0; x < msgLen; x++) {
+      uint8_t val = LnPacket->data[x];
+      Serial.write(val);
+    }
+  }
+  
+  // LocoNet.send(0xBF, 1, 22);
+  
   current.check(); // check current   
 }
+
+

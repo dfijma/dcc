@@ -59,3 +59,5 @@ void Current::check() {
   // Serial.print(lastSampleTime); Serial.print(" "); Serial.println(value[0] / 1024.0 * 5.0 / 3.3 * 2000);
 }
 
+
+
