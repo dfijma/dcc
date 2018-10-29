@@ -14,6 +14,7 @@ dependencies {
     // https://mvnrepository.com/artifact/javax.comm/comm
     // https://mvnrepository.com/artifact/org.rxtx/rxtx
     compile 'com.neuronrobotics:nrjavaserial:3.12.1'
+    compile group: 'commons-cli', name: 'commons-cli', version: '1.4'
     testCompile 'junit:junit:4.12'
 }
 

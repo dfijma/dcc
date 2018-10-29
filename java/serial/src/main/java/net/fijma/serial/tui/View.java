@@ -22,6 +22,14 @@ public class View extends AbstractView {
     @Override
     public void draw() {
         for (var v: views) v.draw();
+        setRC(12, 1);
+        System.out.print("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓");
+        setRC(13, 1);
+        System.out.print("┃0123456789012345678901234567890123456789┃");
+        setRC(14, 1);
+        System.out.print("┃0123456789012345678901234567890123456789┃");
+        setRC(15, 1);
+        System.out.print("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
     }
 
     @Override
