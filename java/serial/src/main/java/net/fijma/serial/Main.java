@@ -3,22 +3,26 @@ package net.fijma.serial;
 import gnu.io.NRSerialPort;
 import gnu.io.SerialPortEvent;
 import gnu.io.SerialPortEventListener;
+import net.fijma.serial.Model.Model;
+import net.fijma.serial.tui.ThrottleController;
+import net.fijma.serial.tui.ThrottleView;
+import net.fijma.serial.tui.View;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.IOException;
+import javax.naming.ldap.Control;
+import java.io.*;
 import java.util.Arrays;
 import java.util.stream.Collectors;
 
 public class Main implements SerialPortEventListener {
 
+    // http://develorium.com/2016/03/unbuffered-standard-input-in-java-console-applications/
+
     public static void main(String[] args) {
         Main m = new Main();
-
         try {
             m.run();
         } catch (Exception e) {
-            System.err.println(e.getMessage());
+            e.printStackTrace();
         }
     }
 
@@ -32,26 +36,28 @@ public class Main implements SerialPortEventListener {
             System.out.println("Availaible port: " + s);
         }
 
+        /*
         String port = "/dev/cu.usbmodem14201";
         int baudRate = 57600; // 115200; //
 
 
         NRSerialPort serial = new NRSerialPort(port, baudRate);
-        serial.connect();
+        // serial.connect();
 
         ins = new DataInputStream(serial.getInputStream());
         DataOutputStream outs = new DataOutputStream(serial.getOutputStream());
 
         serial.addEventListener(this);
 
-        while (r) {
-            Thread.sleep(100);
-            //byte b = (byte) ins.read();
-            //if (b > 0) System.out.print((char)b);
-            // outs.write(b);
-        }
 
-        serial.disconnect();
+        */
+
+        Model model = new Model();
+        ThrottleController controller = ThrottleController.setup(model);
+        controller.run();
+
+        // serial.disconnect();
+
         return true;
     }
 
