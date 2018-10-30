@@ -168,16 +168,20 @@ void update(bool direction) {
 
 // cmd execution
 
-void setSlot(int slot, int speed, int dir, int fns) {
+void setSlot(int slot, int address, int speed, int fns) {
   if (slot >= SLOTS) {
     Serial.println("ERROR:slot max");
     return;
   }
-  if (speed > 127) {
+  if (address >= 9999) {
+    Serial.println("ERROR:address max");
+    return;
+  }
+  if (speed > 255) {
     Serial.println("ERROR:speed invalid");
     return;
   }
-  Serial.print("OK:SLOT="); Serial.print(slot); Serial.print(",SPEED=" ); Serial.print(speed); Serial.print(",DIR="); Serial.print(dir); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
+  Serial.print("OK:SLOT="); Serial.print(slot); Serial.print(",ADDRESS="); Serial.print(address); Serial.print(",SPEED=" ); Serial.print(speed); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
 }
 
 void sendLoconet(byte bs[], int len) {
@@ -238,23 +242,28 @@ void parse(byte *cmd) {
   if (*cmd == 'S') {
     cmd++;
     int slot;
+    int address;
     int speed;
+    
     skipWhiteSpace(cmd);
     if (!parseNumber(slot, cmd)) {
       Serial.println("ERROR:no slot");
       return;
     }
+
+    skipWhiteSpace(cmd);
+    if (!parseNumber(address, cmd)) {
+      Serial.println("ERROR:no address");
+      return;
+    }
+
     skipWhiteSpace(cmd);
     if (!parseNumber(speed, cmd)) {
       Serial.println("ERROR:no speed");
       return;
     }
+
     skipWhiteSpace(cmd);
-    int dir;
-    if (!parseDigit(dir, cmd, '1')) {
-      Serial.println("ERROR:no dir");
-      return;
-    }
     int fn;
     int fns = 0;
     int ifns = 0;
@@ -265,7 +274,7 @@ void parse(byte *cmd) {
       Serial.println("ERROR:extra chars");
       return;
     }
-    setSlot(slot, speed, dir, fns);
+    setSlot(slot, address, speed, fns);
   } else if (*cmd == 'L') {
     cmd++;
     byte buffer[127];
