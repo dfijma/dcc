@@ -7,4 +7,3 @@ stty cbreak
 ./build/install/serial/bin/serial "$@"
 stty $stty_save
 tput cnorm
-clear

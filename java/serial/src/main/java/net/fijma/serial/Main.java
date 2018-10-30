@@ -53,12 +53,17 @@ public class Main  {
 
     private void run(String device) throws Exception {
 
-        ln.decoded.attach(System.out::println);
-        serial.byteAvailable.attach(ln::pushByte);
+
         serial.start(device);
 
-        // Setup and run TUI
-        Model model = new Model();
+        // Setup model
+        Model model = new Model(serial);
+        // when fill loconet message is available, ...
+        ln.decoded.attach(model::msg);
+        // when model receives loconet bytes, push them to parser
+        model.loconetByte.attach(ln::pushByte);
+
+        // Setup controller and view
         ThrottleController controller = ThrottleController.setup(model);
         controller.run();
 

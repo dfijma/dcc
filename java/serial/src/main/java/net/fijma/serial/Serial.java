@@ -7,6 +7,7 @@ import gnu.io.SerialPortEventListener;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
 
 public class Serial implements SerialPortEventListener {
 
@@ -39,7 +40,8 @@ public class Serial implements SerialPortEventListener {
     }
 
     public void write(String s) throws IOException {
-        outs.writeUTF(s);
+        outs.write(s.getBytes(Charset.forName("ASCII")));
+        // outs.writeUTF(s);
     }
 
     public void stop() {

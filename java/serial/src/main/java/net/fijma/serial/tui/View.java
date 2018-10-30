@@ -19,17 +19,32 @@ public class View extends AbstractView {
         currentView = 0;
     }
 
+    public void onMsg(List<String> msg) {
+        String one = "";
+        String two = "";
+        if (msg.size() >= 2) {
+            one = msg.get(msg.size()-2);
+            two = msg.get(msg.size()-1);
+        } else if (msg.size() == 1) {
+            one = msg.get(msg.size()-1);
+        }
+        setRC(13, 2);
+        System.out.println(String.format("%78s", one));
+        setRC(14, 2);
+        System.out.println(String.format("%78s", two));
+    }
+
     @Override
     public void draw() {
         for (var v: views) v.draw();
         setRC(12, 1);
-        System.out.print("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓");
+        System.out.print("┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓");
         setRC(13, 1);
-        System.out.print("┃0123456789012345678901234567890123456789┃");
+        System.out.print("┃                                                                              ┃");
         setRC(14, 1);
-        System.out.print("┃0123456789012345678901234567890123456789┃");
+        System.out.print("┃                                                                              ┃");
         setRC(15, 1);
-        System.out.print("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
+        System.out.print("┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛");
     }
 
     @Override
@@ -37,11 +52,9 @@ public class View extends AbstractView {
         switch (k) {
         case 44:  // ","
             currentView = Math.max(currentView - 1, 0);
-            setRC(30,1); System.out.print(currentView);
             break;
         case 46: // "."
             currentView = Math.min(currentView + 1, views.size()-1);
-            setRC(30,1); System.out.print(currentView);
             break;
         case 88: // X, quit
         case 120:

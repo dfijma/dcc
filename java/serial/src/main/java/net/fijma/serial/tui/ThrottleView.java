@@ -66,7 +66,7 @@ public class ThrottleView extends AbstractView {
             if (throttle != null) {
                 // throttle has error (probably no slots available)
                 setRC(2, base+7);
-                System.out.print("Err");
+                System.out.print("EE");
             }
         } else {
             setRC(2, base+2);

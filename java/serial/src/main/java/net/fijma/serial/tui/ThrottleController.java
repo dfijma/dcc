@@ -25,7 +25,7 @@ public class ThrottleController {
         throttle.switchDirection();
     }
 
-    public void OnFn(ThrottleView.FnEvent e) {
+    public void onFn(ThrottleView.FnEvent e) {
         e.throttle.toggleFunction(e.fn);
     }
 
@@ -43,6 +43,7 @@ public class ThrottleController {
         // wire model -> views
         model.changed.attach(leftView::onUpdate);
         model.changed.attach(rightView::onUpdate);
+        model.msg.attach(view::onMsg);
 
         // create controller
         ThrottleController controller = new ThrottleController(model, view);
@@ -51,9 +52,11 @@ public class ThrottleController {
         leftView.up.attach(controller::onUp);
         leftView.down.attach(controller::onDown);
         leftView.sw.attach(controller::onSwitch);
+        leftView.fn.attach(controller::onFn);
         rightView.up.attach(controller::onUp);
         rightView.down.attach(controller::onDown);
         rightView.sw.attach(controller::onSwitch);
+        rightView.fn.attach(controller::onFn);
 
         return controller;
     }
