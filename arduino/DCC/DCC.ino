@@ -181,7 +181,7 @@ void setSlot(int slot, int address, int speed, int fns) {
     Serial.println("ERROR:speed invalid");
     return;
   }
-  Serial.print("OK:SLOT="); Serial.print(slot); Serial.print(",ADDRESS="); Serial.print(address); Serial.print(",SPEED=" ); Serial.print(speed); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
+  Serial.print("OK SLOT="); Serial.print(slot); Serial.print(",ADR="); Serial.print(address); Serial.print(",SPD=" ); Serial.print(speed); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
 }
 
 void sendLoconet(byte bs[], int len) {
@@ -307,7 +307,7 @@ void setup() {
   setupDCC();
   I2C_setup();
   current.on();
-  Serial.println("HELO");
+  Serial.println("H");
 }
 
 void loop() {
@@ -335,13 +335,13 @@ void loop() {
   LnPacket = LocoNet.receive() ;
   if (LnPacket) {
     uint8_t msgLen = getLnMsgSize(LnPacket);
+    Serial.print("L ");
     for (uint8_t x = 0; x < msgLen; x++) {
       uint8_t val = LnPacket->data[x];
-      Serial.write(val);
+      Serial.print(val, 16); Serial.print(" "); 
     }
+    Serial.println();
   }
-  
-  // LocoNet.send(0xBF, 1, 22);
   
   current.check(); // check current   
 }
