@@ -4,6 +4,8 @@
 #include "I2C.h"
 #include <LocoNet.h>
 
+#define MAX_LOCONET_PACKAGE 16 // well, theoretically it can be 127
+
 // The current monitor
 Current current;
 
@@ -153,42 +155,8 @@ ISR(TIMER2_COMPB_vect) {
 }
 */
 
-long last = 0;
+// cmd parsing and execution
 
-/*
-void update(bool direction) {
-  buffer.slot(0).update().withThrottleCmd(3, 0, direction, false);
-  buffer.slot(0).update().withF1Cmd(3, 0b00011111);
-  buffer.slot(0).flip();
-  buffer.slot(1).update().withThrottleCmd(4, 0, direction, false);
-  buffer.slot(1).update().withF1Cmd(4, 0b00011111);
-  buffer.slot(1).flip();
-} 
-*/
-
-// cmd execution
-
-void setSlot(int slot, int address, int speed, int fns) {
-  if (slot >= SLOTS) {
-    Serial.println("ERROR:slot max");
-    return;
-  }
-  if (address >= 9999) {
-    Serial.println("ERROR:address max");
-    return;
-  }
-  if (speed > 255) {
-    Serial.println("ERROR:speed invalid");
-    return;
-  }
-  Serial.print("OK SLOT="); Serial.print(slot); Serial.print(",ADR="); Serial.print(address); Serial.print(",SPD=" ); Serial.print(speed); Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
-}
-
-void sendLoconet(byte bs[], int len) {
-   Serial.print("OK:LOCONET="); for (int i=0; i<len; ++i) { Serial.print(bs[i]); Serial.print(" "); } Serial.println(); 
-}
-
-// cmd parsing
 byte cmdBuffer[80];
 int cmdLength=0;
 
@@ -239,70 +207,123 @@ boolean parseNumber(int& res, byte*& cmd) {
 }
 
 void parse(byte *cmd) {
-  if (*cmd == 'S') {
+  switch (*cmd) {
+  case 'S': case 's': {
+    // S 12 999 126 1 1 1111111111111 
+    // S <SLOT> <ADR> <SPD> <DIR> <F0><F1>..<F12>
+
     cmd++;
     int slot;
     int address;
     int speed;
+    boolean direction;
+    int fns;
+    int tmp;
     
     skipWhiteSpace(cmd);
     if (!parseNumber(slot, cmd)) {
-      Serial.println("ERROR:no slot");
+      Serial.println("ESLOT");
       return;
     }
 
     skipWhiteSpace(cmd);
     if (!parseNumber(address, cmd)) {
-      Serial.println("ERROR:no address");
+      Serial.println("EADDRESS");
       return;
     }
 
     skipWhiteSpace(cmd);
     if (!parseNumber(speed, cmd)) {
-      Serial.println("ERROR:no speed");
+      Serial.println("ESPEED");
       return;
     }
 
     skipWhiteSpace(cmd);
-    int fn;
-    int fns = 0;
-    int ifns = 0;
-    skipWhiteSpace(cmd);
-    while (ifns < 13 && parseDigit(fn, cmd, '1')) { skipWhiteSpace(cmd); fns = (fns<<1) | fn; ifns++; }
-    fns = fns << (13-ifns);
-    if (*cmd != 0) {
-      Serial.println("ERROR:extra chars");
+    if (!parseDigit(tmp, cmd, '1')) {
+      Serial.println("EDIRECTION");
       return;
     }
-    setSlot(slot, address, speed, fns);
-  } else if (*cmd == 'L') {
+    direction = tmp == 1;
+
+    int ifns = 0;
+    skipWhiteSpace(cmd);
+    while (ifns < 13 && parseDigit(tmp, cmd, '1')) { skipWhiteSpace(cmd); fns = (fns<<1) | tmp; ifns++; }
+    // all 13 function bits are optional, shift in remaining 0's
+    fns = fns << (13-ifns);
+    if (*cmd != 0) {
+      Serial.println("EEXTRA");
+      return;
+    }
+    
+    if (slot >= SLOTS) {
+      Serial.println("ESLOTMAX");
+      return;
+    }
+    if (address >= 9999) {
+      Serial.println("EADDRESSMAX");
+      return;
+    }
+    if (speed > 126) {
+      Serial.println("ESPEEDINVALID");
+      return;
+    }
+
+    int f1;
+    if (fns > 0) {
+      f1 = 16;
+    } else {
+      f1 = 0;
+    }
+    buffer.slot(slot).update().withThrottleCmd(address, (byte)speed, direction, false).withF1Cmd(address, f1);
+      // TODO: other functions
+    Serial.print("OSLOT="); Serial.print(slot); Serial.print(",ADR="); Serial.print(address); 
+      Serial.print(",SPD=" ); Serial.print(speed); Serial.print(",DIR="); Serial.print(direction); 
+      Serial.print(",FN="); Serial.print("0b"); Serial.print(fns, 2); Serial.println() ;   
+    }
+    break;
+  case 'L': case 'l': {
     cmd++;
-    byte buffer[127];
+    lnMsg msg;
     int len=0;
     skipWhiteSpace(cmd);
     int lb;
-    while (len < 127 && parseHexByte(lb, cmd)) { skipWhiteSpace(cmd); buffer[len++] = lb; };
+    // read no more than MAX_LOCONET_PACKAGE-1 bytes, safe one for checksum
+    while (len < MAX_LOCONET_PACKAGE-1 && parseHexByte(lb, cmd)) { 
+      skipWhiteSpace(cmd); 
+      msg.data[len++] = lb;
+    };
     if (*cmd != 0) {
       Serial.println("ERROR:extra chars");
       return;
     }
-    sendLoconet(buffer, len);
-  } else {
-    Serial.println("ERROR: no cmd");
+
+    // we don't check validity of packet, and we do not include checksum (library will handle that)
+    LocoNet.send(&msg);
+    Serial.print("OLOCONET#="); Serial.print(len); Serial.println(); 
+    }
+    break;
+  case 'N': case 'n': {
+    // Notfall! TODO
+    }
+    break;
+ 
+  default:
+    Serial.println("ENOCMD");
   }
 }
 
 // loconet stuff
-lnMsg *LnPacket;
+
+lnMsg* loconetPacket;
 
 void setup() {
   Serial.begin(57600);
   LocoNet.init();
 #ifdef TESTING
-  // testPacket();
-  // testSlot();
-  // buffer.slot(0).update().withThrottleCmd(1000, 100, true, 0);
-  // buffer.test();  
+  testPacket();
+  testSlot();
+  buffer.slot(0).update().withThrottleCmd(1000, 100, true, 0);
+  buffer.test();  
 #endif  
   setupDCC();
   I2C_setup();
@@ -324,7 +345,7 @@ void loop() {
       continue;
     }
 
-    // buffer byte, if room for it
+    // buffer byte, if there is room for it (safe one for terminating zero)
     if (cmdLength < (sizeof(cmdBuffer)-1)) {
       cmdBuffer[cmdLength] = b;
       cmdLength++;
@@ -332,13 +353,13 @@ void loop() {
   }
 
   // receive loconet packages and send through serial port
-  LnPacket = LocoNet.receive() ;
-  if (LnPacket) {
-    uint8_t msgLen = getLnMsgSize(LnPacket);
-    Serial.print("L ");
+  loconetPacket = LocoNet.receive() ;
+  if (loconetPacket) {
+    uint8_t msgLen = getLnMsgSize(loconetPacket);
+    Serial.print("L");
     for (uint8_t x = 0; x < msgLen; x++) {
-      uint8_t val = LnPacket->data[x];
-      Serial.print(val, 16); Serial.print(" "); 
+      uint8_t val = loconetPacket->data[x];
+      Serial.print(" "); Serial.print(val, 16); 
     }
     Serial.println();
   }

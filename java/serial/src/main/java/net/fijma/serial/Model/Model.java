@@ -80,18 +80,10 @@ public class Model {
     private void throttelChanged(Throttle t) {
         changed.trigger(t);
         try {
-            // create speed the DCC way
-            int speed = t.speed;
-            if (t.emergency) {
-                speed = 1;
-            } else {
-                if (speed > 0) speed++;
-            }
-            if (t.direction) speed += 128;
-
             // send S ("SLOT") cmd
             StringBuilder sb = new StringBuilder();
-            sb.append("S ").append(t.slot).append(" ").append(t.address).append(" ").append(speed).append(" ");
+            sb.append("S").append(t.slot).append(" ").append(t.address).append(" ").append(t.speed)
+                    .append(" ").append(t.direction ? "1" : "0").append(" ");
             for (int i=0; i< FUNCTIONS; ++i) sb.append(t.f[i] ? "1" : "0");
             msg(sb.toString());
             sb.append("\n");
