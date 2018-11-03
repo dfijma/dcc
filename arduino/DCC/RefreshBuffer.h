@@ -1,9 +1,7 @@
 #pragma once
 
-static const int SLOTS = 2; // slots in a buffer
-static const int MAX_CMDS_PACKET = 3; // maximum number of cmds in a encoded packet
-static const int MAX_CMD_ENCODED_SIZE = 10; // the max size of a single encodeded cmd
-static const int MAX_CMD_SIZE = 6; // the max size ofa single non-encoded cmd
+#include "Arduino.h"
+#include "Config.h"
 
 //// abstract bitstream, representing a sequence of encoded DCC cmds
 
@@ -37,7 +35,7 @@ class Packet : public BitStream {
   public:
     Packet() { reset(); } // initially empty
     boolean getBit(int bit);
-    int length() { return 8*buffered; }
+    int length() { return 8*buffered; } // length in bits
     void reset() { buffered = 0; }
     Packet& withIdleCmd();
     Packet& withThrottleCmd(int address, byte speed /* 0..126 */, boolean forward, boolean emergencyStop);
@@ -50,6 +48,7 @@ class Packet : public BitStream {
 
     void loadCmd(byte in[], byte nBytes);
     byte loadAddress(byte* buffer, int address);
+    Packet& withCmd(int address, byte mask, byte cmdBits);
 };
 
 //// A Slot is a combination of an active packet (to be modulated) and an updatable packet (to latch new cmds)
@@ -70,15 +69,15 @@ class Slot : public BitStream {
     Packet *updatePacket; 
 };
 
-//// A Buffer is set of slots to be modulated 
+//// A RefreshBuffer is set of slots to be modulated 
 
 // Unitially, the active packet in each slot is an idle cmd and the update packet is empty.
 // After initializing a buffer, we can thus immediately start cycling through all bits using
 // nextBit(), and modulate an endless loop of idle cmds, so that we at least have power.
 
-class Buffer {
+class RefreshBuffer {
   public:
-    Buffer();
+    RefreshBuffer();
     Slot& slot(byte s);
     bool nextBit(); // 
 #ifdef TESTING

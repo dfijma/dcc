@@ -1,11 +1,13 @@
-#include "Arduino.h"
-#include "Config.h"
 #include "Current.h"
 
 #define CURRENT_SAMPLE_TIME        10
 #define CURRENT_SAMPLE_SMOOTHING   0.01
-#define CURRENT_SAMPLE_MAX         300
+#define CURRENT_SAMPLE_MAX         675 // 2000mA
 
+// Sample ranges from 0..1023 for measured values 0v..5v. Motorshield applies 3.3v at monitor pin at its max load of 2000mA (for single channel)
+// So, unit is 1/1024*5/3.3 * 2000mA ~= 1.29 mA
+// In other words, when we draw 2000mA, we expect a reading of 675/676
+  
 Current::Current() {
   // disable 'real' output pin of motor direction (drive through timer output instead using jumper wire)
   pinMode(DIRECTION_MOTOR_CHANNEL_PIN_A, INPUT);
@@ -20,7 +22,7 @@ Current::Current() {
   // initialize values
   value[0] = 0.0; value[1] = 0.0; lastSampleTime = 0; 
 
-  off(); //
+  off(); 
 }
 
 void Current::on() {
@@ -43,21 +45,20 @@ void Current::off() {
   digitalWrite(BRAKE_MOTOR_CHANNEL_PIN_A, HIGH);  // brake!
 }
 
-void Current::check(int pin, int index) {
+boolean Current::check(int pin, int index) {
   value[index] = analogRead(pin) * CURRENT_SAMPLE_SMOOTHING + value[index] * (1.0 - CURRENT_SAMPLE_SMOOTHING); // compute new exponentially-smoothed current
   if (value[index] > CURRENT_SAMPLE_MAX) {
-    Serial.println("overload, switch off");
+    // short circuit, shut off
     off();
+    return false;
   }
+  return true;
 }
 
-void Current::check() {
+boolean Current::check() {
   if (millis() - lastSampleTime < CURRENT_SAMPLE_TIME) return;
-  check(CURRENT_MONITOR_PIN_MAIN, 0);
-  check(CURRENT_MONITOR_PIN_PROG, 1);
-  lastSampleTime = millis();                                 // note millis() uses TIMER-0.  For UNO, we change the scale on Timer-0.  For MEGA we do not.  This means CURENT_SAMPLE_TIME is different for UNO then MEGA
-  // Serial.print(lastSampleTime); Serial.print(" "); Serial.println(value[0] / 1024.0 * 5.0 / 3.3 * 2000);
+  boolean checkMain = check(CURRENT_MONITOR_PIN_MAIN, 0);
+  boolean checkProg = check(CURRENT_MONITOR_PIN_PROG, 1);
+  lastSampleTime = millis();  // note millis() uses TIMER-0, which we also change for DCC signal generation, so expect non-standard values
+  return checkMain && checkProg;
 }
-
-
-

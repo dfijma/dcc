@@ -1,5 +1,17 @@
 #pragma once
 
+// all kind of assumptions
+
+#define MAX_LOCONET_PACKET 16 // well, theoretically it can be 127
+#define SLOTS 10 // slots in a buffer
+#define MAX_CMDS_PACKET  3 // maximum number of cmds in a encoded packet containing multiple encoded cmds
+#define MAX_CMD_ENCODED_SIZE 10 // the max size of a single encodeded cmd
+#define MAX_CMD_SIZE 6 // the max size of single non-encoded cmd
+
+#define MIN_DCC_ADDRESS 1
+#define MAX_DCC_ADDRESS 9999
+#define MAX_DCC_SPEED 126 // excluding the +1 
+
 // DCC signal modulating
 
 // basic idea is as follows:
@@ -49,12 +61,8 @@
 // so: 0 bit half cycle = 24 * 64 ticks / 16Mhz = 96 nanoseconds
 //     1 bit half cyclse = 14 * 64 ticks / 16Mhz = 56 nanoseconds
 
-
 #define CURRENT_MONITOR_PIN_MAIN A0
 #define CURRENT_MONITOR_PIN_PROG A1
 
-
-//// i2c 
-#define SLAVE_ADDRESS 0x04
 
 

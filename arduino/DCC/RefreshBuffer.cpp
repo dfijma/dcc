@@ -1,7 +1,4 @@
-
-#include "Arduino.h"
-#include "Config.h"
-#include "Buffer.h"
+#include "RefreshBuffer.h"
 
 //// decoding for testing purposes
 
@@ -169,14 +166,28 @@ byte Packet::loadAddress(byte* buffer, int address) {
   return res;
 }
 
-Packet& Packet::withF1Cmd(int address, byte FLF4F3F2F1) {
-  // five least-significant bits control FL-F4-F3-F2-F1 or function group One
+Packet& Packet::withCmd(int address, byte mask, byte cmdBits) {
   static byte buffer[4]; // 1 or 2 bytes for address, 1 byte for actual command, 1 byte for checksum
     // high byte cab, low byte cab, 1100 f4f3f2f1 (from byte b)
   int nB = loadAddress(buffer, address);
-  buffer[nB++] = 0x80 | FLF4F3F2F1; // 100x xxxx is function group one
+  buffer[nB++] = mask | cmdBits;
   loadCmd(buffer, nB);
   return *this;
+}
+
+Packet& Packet::withF1Cmd(int address, byte FLF4F3F2F1) {
+  // five least-significant bits control FL-F4-F3-F2-F1 or function group One
+  return withCmd(address, 0x80, FLF4F3F2F1); // 100x xxxx is function group one
+}
+
+Packet& Packet::withF2LowCmd(int address, byte F8F7F6F5) {
+  // four least-significant bits control F8-F7-F6-F5 (the low half of function group 2)
+  return withCmd(address, 0xB0, F8F7F6F5); // 1011 xxxx is function group two low
+}
+
+Packet& Packet::withF2HighCmd(int address, byte F12F11F10F9) {
+  // four least-significant bits control F12-F11-F10-F9 (the high half of function group 2)
+  return withCmd(address, 0xA0, F12F11F10F9); // 1010 xxxx is function group two high) 
 }
 
 Packet& Packet::withThrottleCmd(int address, byte speed /* 0..126 */, boolean forward, boolean emergencyStop) {
@@ -227,9 +238,9 @@ void testSlot() {
 }
 #endif
 
-//// Buffer
+//// RefreshBuffer
 
-Buffer::Buffer() {
+RefreshBuffer::RefreshBuffer() {
   // initially, each active packet is IDLE, each update packet is empty
   for (int i=0; i<SLOTS; ++i) {
     slots[i].update().withIdleCmd();
@@ -241,12 +252,12 @@ Buffer::Buffer() {
   currentBit = 0;
 }
 
-Slot& Buffer::slot(byte s) {
+Slot& RefreshBuffer::slot(byte s) {
   if (s >= brk) brk = s+1;
   return slots[s]; 
 }
 
-bool Buffer::nextBit() {
+bool RefreshBuffer::nextBit() {
   boolean res = slots[currentSlot].getBit(currentBit);
   currentBit++;
   if (currentBit >= slots[currentSlot].length()) {
@@ -254,15 +265,13 @@ bool Buffer::nextBit() {
     currentSlot = (currentSlot + 1) % brk;
     slots[currentSlot].flip(); // if there is an update, flip into active
     currentBit = 0; // this assneumes that the slot is not empty!
-    //Serial.println();
   }  
-  //Serial.print(res);
   return res;
 }
 
 #ifdef TESTING
 
-bool Buffer::test() {
+bool RefreshBuffer::test() {
   // collect all bits and try to decode
   TestBitStream bs;
   currentBit = 0;

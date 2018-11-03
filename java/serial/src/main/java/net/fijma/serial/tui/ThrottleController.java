@@ -41,8 +41,8 @@ public class ThrottleController {
         View view = new View(leftView, rightView);
 
         // wire model -> views
-        model.changed.attach(leftView::onUpdate);
-        model.changed.attach(rightView::onUpdate);
+        model.throttleChanged.attach(leftView::onUpdate);
+        model.throttleChanged.attach(rightView::onUpdate);
         model.msg.attach(view::onMsg);
 
         // create controller

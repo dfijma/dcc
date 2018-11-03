@@ -53,13 +53,14 @@ public class Main  {
 
     private void run(String device) throws Exception {
 
-
         serial.start(device);
 
         // Setup model
         Model model = new Model(serial);
-        // when fill loconet message is available, ...
+
+        // when full loconet message is available, ...
         ln.decoded.attach(model::msg);
+
         // when model receives loconet bytes, push them to parser
         model.loconetByte.attach(ln::pushByte);
 

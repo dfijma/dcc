@@ -12,10 +12,11 @@ public class Model {
     public static final int SLOTS = 2;
     public static final int FUNCTIONS = 13; // F0-F12
 
-    public final Event<Throttle> changed = new Event<>();
+    public final Event<Throttle> throttleChanged = new Event<>();
     public final Event<List<String>> msg = new Event<>();
     public final Event<Integer> loconetByte = new Event<>();
 
+    // Very nice discussion of a basic implementation of MVC in JavaAhumScript:
     // https://medium.com/@ToddZebert/a-walk-through-of-a-simple-javascript-mvc-implementation-c188a69138dc
 
     // basically, model is number of throttles and a msg ring
@@ -55,14 +56,19 @@ public class Model {
         if (b == 10) return;
         if (b == 13) {
             String m = serialString.toString();
-            if (m.length() > 0 && m.startsWith("L")) {
+            if (m.startsWith("LN")) {
                 // Loconet packet received, split and parse bytes
                 for (String s: m.split(" ")) {
                     try {
                         loconetByte.trigger(Integer.parseInt(s, 16));
                     } catch (NumberFormatException ignored) {}
                 }
+            } else if (m.startsWith("POFF")) {
+                // overload detected
+            } else if (m.startsWith("HELO")) {
+                // initialized
             } else {
+                // everything else, at least for now, it threated as msg that is printed
                 msg(m);
             }
             serialString = new StringBuilder();
@@ -77,14 +83,33 @@ public class Model {
         msg.trigger(msgs);
     }
 
+    // Poor little controller expects order FL-F4-F3-F2-F1-F8-F7-F6-F5-F12-F11-F10-F9
+    // We have them in order FL-F1-F2-F3-F4-F5-F6-F7-F8-F9-F10-F11-F12
+    // Let us do the heavy lifting
+    static private final int functionBitReorder[] = {
+            0,
+            4,
+            3,
+            2,
+            1,
+            8,
+            7,
+            6,
+            5,
+            12,
+            11,
+            10,
+            9
+    };
+
     private void throttelChanged(Throttle t) {
-        changed.trigger(t);
+        throttleChanged.trigger(t);
         try {
             // send S ("SLOT") cmd
             StringBuilder sb = new StringBuilder();
             sb.append("S").append(t.slot).append(" ").append(t.address).append(" ").append(t.speed)
                     .append(" ").append(t.direction ? "1" : "0").append(" ");
-            for (int i=0; i< FUNCTIONS; ++i) sb.append(t.f[i] ? "1" : "0");
+            for (int i=0; i< FUNCTIONS; ++i) sb.append(t.f[functionBitReorder[i]] ? "1" : "0");
             msg(sb.toString());
             sb.append("\n");
             serial.write(sb.toString());
@@ -96,7 +121,6 @@ public class Model {
     public class Throttle {
 
         // a single trottle
-        // public final Model model;
         public final int slot; // slot
         public final int address; // loco
 
@@ -106,7 +130,6 @@ public class Model {
         private boolean[] f = new boolean[FUNCTIONS];
 
         Throttle(int slot, int address) {
-            // this.model = model;
             this.slot = slot;
             this.address = address;
             speed = 0;
