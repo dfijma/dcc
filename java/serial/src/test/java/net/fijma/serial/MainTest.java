@@ -1,6 +1,6 @@
 package net.fijma.serial;
 
-import net.fijma.serial.Model.Model;
+import net.fijma.serial.model.Model;
 import org.junit.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
@@ -15,7 +15,7 @@ public class MainTest {
         assertEquals("throttle address",  23, t.address);
 
         AtomicInteger changedSpeed = new AtomicInteger();
-        m.changed.attach((throttle) -> {
+        m.throttleChanged.attach((throttle) -> {
             changedSpeed.set(throttle.getSpeed());
         });
 

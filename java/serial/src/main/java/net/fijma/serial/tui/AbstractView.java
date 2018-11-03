@@ -1,23 +1,35 @@
 package net.fijma.serial.tui;
 
+import net.fijma.serial.model.Model;
+
 public abstract class AbstractView  {
+
+    final Model model;
 
     public abstract void draw();
     public abstract boolean key(int k);
 
-    //http://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html
+    AbstractView(Model model) {
+        this.model = model;
+    }
+
+    // http://www.lihaoyi.com/post/BuildyourownCommandLinewithANSIescapecodes.html
 
     protected void clear() {
         System.out.print("\u001b[2J");
         setRC(0,0);
     }
 
-    protected void green() {
-        System.out.print("\u001b[32m");
+    protected String green() {
+        return "\u001b[32m";
     }
 
-    protected  void reset() {
-        System.out.print("\u001b[0m");
+    protected String red() {
+        return "\u001b[31m";
+    }
+
+    protected String reset() {
+        return "\u001b[0m";
     }
 
     protected void setRC(int row, int col) {

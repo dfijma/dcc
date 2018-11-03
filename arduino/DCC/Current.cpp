@@ -56,7 +56,7 @@ boolean Current::check(int pin, int index) {
 }
 
 boolean Current::check() {
-  if (millis() - lastSampleTime < CURRENT_SAMPLE_TIME) return;
+  if (millis() - lastSampleTime < CURRENT_SAMPLE_TIME) return true;
   boolean checkMain = check(CURRENT_MONITOR_PIN_MAIN, 0);
   boolean checkProg = check(CURRENT_MONITOR_PIN_PROG, 1);
   lastSampleTime = millis();  // note millis() uses TIMER-0, which we also change for DCC signal generation, so expect non-standard values

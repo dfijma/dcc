@@ -1,12 +1,16 @@
 package net.fijma.serial;
 
-import net.fijma.serial.Model.Model;
-import net.fijma.serial.tui.ThrottleController;
+import net.fijma.serial.model.Model;
+import net.fijma.serial.tui.Controller;
 import org.apache.commons.cli.*;
 
-public class Main  {
+import java.io.Console;
+import java.io.IOException;
 
-    // http://develorium.com/2016/03/unbuffered-standard-input-in-java-console-applications/
+public class Main  {
+    private volatile boolean run = true;
+    private Event<Integer> keyAvailable = new Event<>();
+    private Serial serial = new Serial();
 
     private static void usage(Options options) {
         HelpFormatter formatter = new HelpFormatter();
@@ -15,12 +19,11 @@ public class Main  {
     }
 
     public static void main(String[] args) {
-        Options options = new Options();
+        var options = new Options();
         options.addOption("p", false, "probe serial ports");
         options.addOption(Option.builder("d").optionalArg(false).hasArg().argName("device").desc("serial port device").build());
 
         CommandLineParser parser = new DefaultParser();
-
         String device = null;
 
         try {
@@ -48,27 +51,48 @@ public class Main  {
         }
     }
 
-    private Loconet ln = new Loconet();
-    private Serial serial = new Serial();
-
-    private void run(String device) throws Exception {
-
-        serial.start(device);
-
+    private void run(String device)  {
         // Setup model
         Model model = new Model(serial);
 
-        // when full loconet message is available, ...
-        ln.decoded.attach(model::msg);
-
-        // when model receives loconet bytes, push them to parser
-        model.loconetByte.attach(ln::pushByte);
-
         // Setup controller and view
-        ThrottleController controller = ThrottleController.setup(model);
+        Controller controller = Controller.setup(model, keyAvailable, serial);
+
+        // start serial communication
+        serial.start(device);
+
+        // start reading the keyboard
+        Thread kb = new Thread(this::keyboardLoop);
+        kb.start();
+
+        // run controller on main thread until it terminates
         controller.run();
 
+        // wait for keyboard loop to stop
+        run = false;
+        while (true) {
+            try {
+                kb.join();
+                break;
+            } catch (InterruptedException ignored) { }
+        }
+
         serial.stop();
+    }
+
+    // http://develorium.com/2016/03/unbuffered-standard-input-in-java-console-applications/
+    private void keyboardLoop() {
+        Console console = System.console();
+        while (run) {
+            try {
+                boolean a = console.reader().ready();
+                if (!a) {
+                    Thread.sleep(10);
+                    continue;
+                }
+                keyAvailable.trigger(console.reader().read());
+            } catch (IOException | InterruptedException ignored) {  }
+        }
     }
 
 }

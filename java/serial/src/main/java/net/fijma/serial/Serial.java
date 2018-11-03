@@ -8,23 +8,24 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.nio.charset.Charset;
+import java.util.TooManyListenersException;
 
 public class Serial implements SerialPortEventListener {
 
-    public final Event<Integer> byteAvailable = new Event<>(); // TODO: that is a bit expensive
+    public final Event<String> lineAvailable = new Event<>();
 
     private DataInputStream ins;
     private DataOutputStream outs;
     private NRSerialPort serial = null;
 
-    public static void probe() {
+    static void probe() {
         // list serial ports
         for (String s: NRSerialPort.getAvailableSerialPorts()){
             System.out.println(s);
         }
     }
 
-    public void start(String device) throws Exception {
+    void start(String device)  {
 
         // TODO: remove hardcoded stuff
         int baudRate = 57600; // 115200; //
@@ -36,7 +37,11 @@ public class Serial implements SerialPortEventListener {
         // and read data in asynchronous fashion
         ins = new DataInputStream(serial.getInputStream());
         outs = new DataOutputStream(serial.getOutputStream());
-        serial.addEventListener(this);
+        try {
+            serial.addEventListener(this);
+        } catch (TooManyListenersException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     public void write(String s) throws IOException {
@@ -44,7 +49,7 @@ public class Serial implements SerialPortEventListener {
         // outs.writeUTF(s);
     }
 
-    public void stop() {
+    void stop() {
         if (serial != null) serial.disconnect();
     }
 
@@ -54,10 +59,24 @@ public class Serial implements SerialPortEventListener {
             for (;;) {
                 int b = ins.read();
                 if (b < 0) break; // no more date available (yet)
-                byteAvailable.trigger(b);
+                onSerialByte(b);
             }
         } catch (IOException e) {
             // brr
         }
+    }
+
+    // keep incoming serial data and decode to string, display as msg on complete
+    private StringBuilder serialString = new StringBuilder();
+
+    private void onSerialByte(int b) {
+        // decode incoming serial bytes as ASCII (yes, no fancy UTF-8 stuff expected)
+        if (b == 10) return;
+        if (b == 13) {
+            lineAvailable.trigger(serialString.toString());
+            serialString = new StringBuilder();
+            return;
+        }
+        serialString.append((char)b);
     }
 }

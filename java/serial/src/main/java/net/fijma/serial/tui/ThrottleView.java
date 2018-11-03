@@ -1,63 +1,73 @@
 package net.fijma.serial.tui;
 
 import net.fijma.serial.Event;
-import net.fijma.serial.Model.Model;
+import net.fijma.serial.model.Model;
 
 public class ThrottleView extends AbstractView {
 
-    final Model model;
-    public final Event<Model.Throttle> up = new Event<>();
-    public final Event<Model.Throttle> down = new Event<>();
-    public final Event<Model.Throttle> sw = new Event<>();
-    public final Event<FnEvent> fn = new Event<>();
+    final Event<Model.Throttle> up = new Event<>();
+    final Event<Model.Throttle> down = new Event<>();
+    final Event<Model.Throttle> sw = new Event<>();
+    final Event<FnEvent> fn = new Event<>();
 
 
     static class FnEvent{
-        public final Model.Throttle throttle;
-        public final int fn;
-        public FnEvent (Model.Throttle throttle, int fn) {
+        final Model.Throttle throttle;
+        final int fn;
+        FnEvent (Model.Throttle throttle, int fn) {
             this.throttle = throttle;
             this.fn = fn;
         }
     }
-    final int pos;
+    private final int pos;
 
     private Model.Throttle throttle = null;
     private int address = 0;
     private int nextFunctionShift = 0;
 
-    public ThrottleView(Model model, int pos) {
-        this.model = model;
+    ThrottleView(Model model, int pos) {
+        super(model);
         this.pos = pos;
     }
 
+    private String colorCheck(boolean b) {
+        if (b) {
+            return green() +"✓" + reset();
+        } else {
+            return red() + "𐄂" + reset();
+        }
+    }
     public void draw() {
-        green();
-        /*
-        01234567890
-        +===+=+
-        |999|^|
-        +===+=+
-         */
-        int base = 10+pos*20;
+        int baseCol = 1+pos*59;
 
-        setRC(1,base+1);  System.out.print("┏━━━━┳━━┓");
-        setRC(2,base+1); System.out.print("┃0000┃--┃");
-        setRC(3,base+1);  System.out.print("┣━━━┳┻┳━┫");
-        setRC(4,base+1);  System.out.print("┃---┃-┃-┃");
-        setRC(5,base+1);  System.out.print("┣━┳━╋━╋━┫");
-        for (int i=0; i<3; i++) {
-            setRC(6+(i*2),base+1); System.out.print("┃-┃-┃-┃-┃");
-            if (i < 2) {
-                setRC(7 + (i * 2), base+1); System.out.print("┣━╋━╋━╋━┫");
-            } else {
-                setRC(7+(i*2),base+1); System.out.print("┗━┻━┻━┻━┛");
-            }
+    String pict[] = new String[] {
+"+---------+---------+",
+"| adr ----|  sl --  |",
+"+---------+----+----+",
+"| spd --- | -  |FL- |",
+"+----+----+----+----+",
+"|F01-|F02-|F03-|F04-|",
+"+----+----+----+----+",
+"|F05-|F06-|F07-|F08-|",
+"+----+----+----+----+",
+"|F09-|F10-|F11-|F12-|",
+"+----+----+----+----+"          };
+
+        int addressColOffset = 6;
+        int slotColOffset = 16;
+        int speedColOffset = 6;
+        int directionColOffset = 12;
+        int flColOffset = 18;
+        int fColOffset[] = new int[] { 4, 9, 14, 19};
+
+        for (int i=1; i<= pict.length; ++i) {
+            setRC(i, baseCol);
+            System.out.print(pict[i-1]);
         }
 
         if (throttle == null || throttle.hasError()) {
             // no throttle, let user enter one
-            setRC(2,base+2);
+            setRC(2,baseCol+addressColOffset);
             if (address == 0) {
                 System.out.println("   ?");
             } else {
@@ -65,36 +75,36 @@ public class ThrottleView extends AbstractView {
             }
             if (throttle != null) {
                 // throttle has error (probably no slots available)
-                setRC(2, base+7);
+                setRC(2, baseCol+slotColOffset);
                 System.out.print("EE");
             }
         } else {
-            setRC(2, base+2);
+            setRC(2, baseCol+addressColOffset);
             System.out.print(String.format("%4d", throttle.address));
-            setRC(2, base+7);
+            setRC(2, baseCol+slotColOffset);
             System.out.print(String.format("%2d", throttle.slot));
 
-            setRC(4, base+2);
+            setRC(4, baseCol+speedColOffset);
             System.out.print(String.format("%3d", throttle.getSpeed()));
-            setRC(4, base+6);
+            setRC(4, baseCol+directionColOffset);
             if (throttle.getDirection()) {
                 System.out.print("\u2b06"); // upwards black arrow
             } else {
                 System.out.print("\u2b07"); // downwards black arrow
             }
-            setRC(4, base+8);
-            System.out.print(throttle.getFunction(0) ? "✓" : "𐄂");
+            setRC(4, baseCol+flColOffset);
+            System.out.print(colorCheck(throttle.getFunction(0)));
 
             for (int i = 0; i < 3; i++) {
                 for (int j = 1; j <= 4; j++) {
-                    setRC(6 + (i * 2), base+2 * j);
-                    System.out.print(throttle.getFunction(j + i * 4) ? "✓" : "𐄂");
+                    setRC(6 + (i * 2), baseCol + fColOffset[j-1]);
+                    System.out.print(colorCheck(throttle.getFunction(j + i * 4)));
                 }
             }
         }
     }
 
-    public void onUpdate(Model.Throttle throttle) {
+    void onUpdate(Model.Throttle throttle) {
         // model notifies update
         if (throttle == this.throttle) {
             draw();

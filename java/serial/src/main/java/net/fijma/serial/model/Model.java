@@ -1,4 +1,4 @@
-package net.fijma.serial.Model;
+package net.fijma.serial.model;
 
 import net.fijma.serial.Event;
 import net.fijma.serial.Serial;
@@ -9,12 +9,12 @@ import java.util.List;
 
 public class Model {
 
-    public static final int SLOTS = 2;
-    public static final int FUNCTIONS = 13; // F0-F12
+    private static final int SLOTS = 2;
+    private static final int FUNCTIONS = 13; // F0-F12
 
     public final Event<Throttle> throttleChanged = new Event<>();
     public final Event<List<String>> msg = new Event<>();
-    public final Event<Integer> loconetByte = new Event<>();
+    public final Event<Boolean> powerChanged = new Event<>();
 
     // Very nice discussion of a basic implementation of MVC in JavaAhumScript:
     // https://medium.com/@ToddZebert/a-walk-through-of-a-simple-javascript-mvc-implementation-c188a69138dc
@@ -22,12 +22,12 @@ public class Model {
     // basically, model is number of throttles and a msg ring
     private final Throttle[] slots = new Throttle[SLOTS];
     private final ArrayList<String> msgs = new ArrayList<>();
+    private boolean power = false;
     private final Serial serial;
 
     public Model(Serial serial) {
-        // attach to receive byts from serial port
+        // attach to receive byte from serial port
         this.serial = serial;
-        serial.byteAvailable.attach(this::onSerialByte);
     }
 
     public Throttle getThrottleFor(int address) {
@@ -38,49 +38,45 @@ public class Model {
             // no more free slots
             msg("NO FREE SLOTS");
             return errorThrottle;
-        };
+        }
         if (slots[i] == null) {
             slots[i] = new Throttle(i, address);
             // initial update of refresh buffer
-            throttelChanged(slots[i]);
+            throttleChanged(slots[i]);
         }
         assert(slots[i].address == address);
         return slots[i];
     }
 
-    // keep incoming serial data and decode to string, display as msg on complete
-    private StringBuilder serialString = new StringBuilder();
-
-    private void onSerialByte(int b) {
-        // decode incoming serial bytes as ASCII (yes, no fancy UTF-8 stuff expected)
-        if (b == 10) return;
-        if (b == 13) {
-            String m = serialString.toString();
-            if (m.startsWith("LN")) {
-                // Loconet packet received, split and parse bytes
-                for (String s: m.split(" ")) {
-                    try {
-                        loconetByte.trigger(Integer.parseInt(s, 16));
-                    } catch (NumberFormatException ignored) {}
-                }
-            } else if (m.startsWith("POFF")) {
-                // overload detected
-            } else if (m.startsWith("HELO")) {
-                // initialized
-            } else {
-                // everything else, at least for now, it threated as msg that is printed
-                msg(m);
-            }
-            serialString = new StringBuilder();
-            return;
-        }
-        serialString.append((char)b);
-    }
-
     // add msg
     public void msg(String s) {
-        msgs.add(s);
+        if (msgs.size() > 100) msgs.remove(msgs.size()-1);
+        msgs.add(0, s);
         msg.trigger(msgs);
+    }
+
+    public boolean power() { return power; }
+
+    public void setPower(boolean power) {
+        if (this.power == power) return;
+        this.power = power;
+
+        try {
+            // send S ("SLOT") cmd
+            StringBuilder sb = new StringBuilder();
+            if (this.power) {
+                sb.append("P"); // power on command
+            } else {
+                sb.append("O"); // power off command
+            }
+            msg(sb.toString());
+            sb.append("\n");
+            serial.write(sb.toString());
+        } catch (IOException e) {
+            msg("IO ERROR");
+        }
+
+        powerChanged.trigger(this.power);
     }
 
     // Poor little controller expects order FL-F4-F3-F2-F1-F8-F7-F6-F5-F12-F11-F10-F9
@@ -102,7 +98,7 @@ public class Model {
             9
     };
 
-    private void throttelChanged(Throttle t) {
+    private void throttleChanged(Throttle t) {
         throttleChanged.trigger(t);
         try {
             // send S ("SLOT") cmd
@@ -149,7 +145,7 @@ public class Model {
             speed = x;
             if (speed < 0) speed = 0;
             if (speed > 126) speed = 126;
-            Model.this.throttelChanged(this);
+            Model.this.throttleChanged(this);
         }
 
         public boolean getDirection() {
@@ -158,12 +154,12 @@ public class Model {
 
         public void switchDirection() {
             direction = !direction;
-            Model.this.throttelChanged(this);
+            Model.this.throttleChanged(this);
         }
 
         public void toggleFunction(int i) {
             f[i] = !f[i];
-            Model.this.throttelChanged(this);
+            Model.this.throttleChanged(this);
         }
 
         public boolean getFunction(int i) {
@@ -196,6 +192,6 @@ public class Model {
         }
     }
 
-    public final Throttle errorThrottle = new Throttle(0, 0);
+    private final Throttle errorThrottle = new Throttle(0, 0);
 
 }
