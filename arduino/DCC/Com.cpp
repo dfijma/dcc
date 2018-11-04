@@ -173,7 +173,7 @@ static void parse(RefreshBuffer& buffer, Current current, byte *cmd) {
     break;
   }
   case 'O': case 'o': {
-    current.on();
+    current.off();
     Serial.println("OK power is off");
     break;
   }
