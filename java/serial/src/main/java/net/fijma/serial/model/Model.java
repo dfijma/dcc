@@ -32,7 +32,7 @@ public class Model {
 
     public Throttle getThrottleFor(int address) {
         // get or create throttle for address, while SLOTS last
-        var i=0;
+        int i=0;
         while (i<SLOTS && slots[i] != null && slots[i].address!= address) ++i;
         if (i>=SLOTS) {
             // no more free slots
@@ -130,7 +130,7 @@ public class Model {
             this.address = address;
             speed = 0;
             direction = true;
-            for (var i=0; i<FUNCTIONS; ++i) {
+            for (int i=0; i<FUNCTIONS; ++i) {
                 f[i] = false;
             }
         }

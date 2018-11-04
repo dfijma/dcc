@@ -19,7 +19,7 @@ public class Main  {
     }
 
     public static void main(String[] args) {
-        var options = new Options();
+        Options options = new Options();
         options.addOption("p", false, "probe serial ports");
         options.addOption(Option.builder("d").optionalArg(false).hasArg().argName("device").desc("serial port device").build());
 

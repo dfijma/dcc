@@ -70,7 +70,7 @@ public class MainView extends AbstractView {
 
         onPowerChanged(model.power());
 
-        for (var v: views) v.draw();
+        for (AbstractView v: views) v.draw();
     }
 
     @Override
