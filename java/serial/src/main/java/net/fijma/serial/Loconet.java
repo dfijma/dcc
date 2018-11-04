@@ -103,6 +103,8 @@ public class Loconet {
                 return "OPC_SLOT_STAT1";
             case 0xB4:
                 return "OPC_LONG_ACK";
+            case 0xB2:
+                return "OPC_INPUT_REP";
             case 0xEF:
                 return "OPC_WR_SL_DATA";
             case 0xED:
@@ -199,6 +201,15 @@ public class Loconet {
                 sb.append("(LOPC=").append(opcodeName(buffer[1] | 0x80)).
                         append(",ACK1=").append(String.format("0x%02X", buffer[2])).append(")");
                 break;
+            case 0xB2: {
+                boolean x = (buffer[2] & 0b0100_0000) != 0;
+                boolean i = (buffer[2] & 0b0010_0000) != 0;
+                boolean l = (buffer[2] & 0b0001_0000) != 0;
+                int adr = 2 * buffer[1] + 256 * (buffer[2] & 0b0000_1111);
+                if (i) adr+=1;
+                sb.append("(ADR=").append(adr).append(",L=").append(l).append(")");
+                break;
+                }
             case 0xEF:
             case 0xE7:
                 if (buffer[1] == 0x0E) {

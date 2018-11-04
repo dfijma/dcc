@@ -63,14 +63,14 @@ public class Controller {
                                 ln.pushByte(Integer.parseInt(s, 16));
                             } catch (NumberFormatException ignored) {}
                         }
-                    } else {
-                        if (line.startsWith("POFF")) {
+                    } else if (line.startsWith("POFF")) {
                             model.msg("power overload, switched off");
                             model.setPower(false);
-                        } else if (line.contains("HELO")) {
+                    } else if (line.contains("HELO")) {
                             // contains, not "startsWith", as initial message sometimes start with one or two chars of garbage
                             model.msg("controller initialized");
-                        }
+                    } else {
+                        model.msg(line);
                     }
                 }
             } catch (InterruptedException ignored) {  }
