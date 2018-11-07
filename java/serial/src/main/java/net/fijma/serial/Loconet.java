@@ -105,6 +105,8 @@ public class Loconet {
                 return "OPC_LONG_ACK";
             case 0xB2:
                 return "OPC_INPUT_REP";
+            case 0xB0:
+                return "OPC_REQ_SWITCH";
             case 0xEF:
                 return "OPC_WR_SL_DATA";
             case 0xED:
@@ -210,6 +212,13 @@ public class Loconet {
                 sb.append("(ADR=").append(adr).append(",L=").append(l).append(")");
                 break;
                 }
+            case 0xB0: {
+                boolean dir = (buffer[2] & 0b00100000) != 0;
+                boolean on  = (buffer[2] & 0b00010000) != 0;
+                int adr = buffer[1] + 128 * (buffer[2] & 0b0000_1111);
+                sb.append("(ADR=").append(adr).append(",DIR=").append(dir).append(",ON=").append(on).append(")");
+                break;
+            }
             case 0xEF:
             case 0xE7:
                 if (buffer[1] == 0x0E) {

@@ -93,6 +93,16 @@ public class MainView extends AbstractView {
         case 88: // X, quit
         case 120:
             return false;
+        case 77: // M
+        case 109:
+            model.set_OPC_SW_REQ(0, false, true);
+            // model.set_OPC_SW_REQ(0, false, false);
+            break;
+        case 78: // N
+        case 110:
+            model.set_OPC_SW_REQ(0, true, true);
+            // model.set_OPC_SW_REQ(0, true, false);
+            break;
         default:
             views.get(currentView).key(k);
         }

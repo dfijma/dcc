@@ -1,5 +1,6 @@
 package net.fijma.serial.model;
 
+import net.fijma.serial.AbstractSerial;
 import net.fijma.serial.Event;
 import net.fijma.serial.Serial;
 
@@ -23,9 +24,9 @@ public class Model {
     private final Throttle[] slots = new Throttle[SLOTS];
     private final ArrayList<String> msgs = new ArrayList<>();
     private boolean power = false;
-    private final Serial serial;
+    private final AbstractSerial serial;
 
-    public Model(Serial serial) {
+    public Model(AbstractSerial serial) {
         // attach to receive byte from serial port
         this.serial = serial;
     }
@@ -77,6 +78,26 @@ public class Model {
         }
 
         powerChanged.trigger(this.power);
+    }
+
+    public void set_OPC_SW_REQ(int adr, boolean dir, boolean on) {
+        try {
+            StringBuffer sb = new StringBuffer("L B0 ");
+            int sw1 = adr / 16; // high bits of address
+            int sw2 = adr % 16; // low bits of address
+            if (dir) {
+                sw2 = sw2 | 0b0010_0000;
+            }
+            if (on) {
+                sw2 = sw2 | 0b0001_0000;
+            }
+            sb.append(String.format("%02X", sw1)).append(" ").append(String.format("%02X", sw2));
+            msg(sb.toString());
+            sb.append("\n");
+            serial.write(sb.toString());
+        } catch (IOException e) {
+            msg("IO ERROR");
+        }
     }
 
     // Poor little controller expects order FL-F4-F3-F2-F1-F8-F7-F6-F5-F12-F11-F10-F9

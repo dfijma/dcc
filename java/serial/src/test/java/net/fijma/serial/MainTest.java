@@ -10,7 +10,7 @@ import static org.junit.Assert.*;
 public class MainTest {
 
     @Test public void testMain() {
-        Model m = new Model(null);
+        Model m = new Model(new MockSerial());
         Model.Throttle t = m.getThrottleFor(23);
         assertEquals("throttle address",  23, t.address);
 

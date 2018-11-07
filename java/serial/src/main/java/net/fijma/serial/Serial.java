@@ -10,7 +10,7 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.TooManyListenersException;
 
-public class Serial implements SerialPortEventListener {
+public class Serial extends AbstractSerial implements SerialPortEventListener {
 
     public final Event<String> lineAvailable = new Event<>();
 
@@ -44,9 +44,9 @@ public class Serial implements SerialPortEventListener {
         }
     }
 
+    @Override
     public void write(String s) throws IOException {
-        outs.write(s.getBytes(Charset.forName("ASCII")));
-        // outs.writeUTF(s);
+        outs.write(s.getBytes(Charset.forName("ASCII")));  // This is the eighties, we don't do UTF-8
     }
 
     void stop() {
