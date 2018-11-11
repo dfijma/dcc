@@ -1,68 +1,52 @@
 package net.fijma.serial;
 
-import gnu.io.NRSerialPort;
-import gnu.io.SerialPortEvent;
-import gnu.io.SerialPortEventListener;
-
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
+import com.fazecast.jSerialComm.*;
 import java.io.IOException;
 import java.nio.charset.Charset;
-import java.util.TooManyListenersException;
 
-public class Serial extends AbstractSerial implements SerialPortEventListener {
+public class Serial extends AbstractSerial implements SerialPortDataListener {
 
     public final Event<String> lineAvailable = new Event<>();
 
-    private DataInputStream ins;
-    private DataOutputStream outs;
-    private NRSerialPort serial = null;
+    private SerialPort serial = null;
 
     static void probe() {
         // list serial ports
-        for (String s: NRSerialPort.getAvailableSerialPorts()){
-            System.out.println(s);
+        for (SerialPort s: SerialPort.getCommPorts()){
+            System.out.println(s.getSystemPortName());
         }
     }
 
-    void start(String device)  {
+    void start(String device) throws Exception {
 
         // TODO: remove hardcoded stuff
         int baudRate = 57600; // 115200; //
 
-        // open serial port
-        serial = new NRSerialPort(device, baudRate);
-        serial.connect();
+        // open serial port and read data in asynchronous fashion
+        serial = SerialPort.getCommPort(device);
+        serial.setComPortParameters(baudRate, 8, 1, SerialPort.NO_PARITY);
+        serial.addDataListener(this);
+        if (!serial.openPort()) throw new Exception("cannot open serial port");
 
-        // and read data in asynchronous fashion
-        ins = new DataInputStream(serial.getInputStream());
-        outs = new DataOutputStream(serial.getOutputStream());
-        try {
-            serial.addEventListener(this);
-        } catch (TooManyListenersException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     @Override
     public void write(String s) throws IOException {
-        outs.write(s.getBytes(Charset.forName("ASCII")));  // This is the eighties, we don't do UTF-8
+        byte[] bs = s.getBytes(Charset.forName("ASCII"));  // This is the eighties, we don't do UTF-8
+        serial.writeBytes(bs, bs.length);
     }
 
     void stop() {
-        if (serial != null) serial.disconnect();
+        if (serial != null) serial.closePort();
     }
 
     @Override
-    public void serialEvent(SerialPortEvent ev) {
-        try {
-            for (;;) {
-                int b = ins.read();
-                if (b < 0) break; // no more date available (yet)
-                onSerialByte(b);
-            }
-        } catch (IOException e) {
-            // brr
+    public void serialEvent(SerialPortEvent event) {
+        if (event.getEventType() != SerialPort.LISTENING_EVENT_DATA_AVAILABLE) return;
+        byte[] newData = new byte[serial.bytesAvailable()];
+        int numRead = serial.readBytes(newData, newData.length);
+        for (int i=0; i<numRead; ++i) {
+            this.onSerialByte(newData[i]);
         }
     }
 
@@ -78,5 +62,9 @@ public class Serial extends AbstractSerial implements SerialPortEventListener {
             return;
         }
         serialString.append((char)b);
+    }
+
+    public int getListeningEvents() {
+        return SerialPort.LISTENING_EVENT_DATA_AVAILABLE;
     }
 }

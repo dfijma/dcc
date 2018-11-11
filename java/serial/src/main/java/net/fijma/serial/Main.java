@@ -51,7 +51,7 @@ public class Main  {
         }
     }
 
-    private void run(String device)  {
+    private void run(String device) throws Exception {
         // Setup model
         Model model = new Model(serial);
 
