@@ -1,8 +1,7 @@
 package net.fijma.serial.model;
 
-import net.fijma.serial.AbstractSerial;
-import net.fijma.serial.Event;
-import net.fijma.serial.Serial;
+import net.fijma.mvc.Event;
+import net.fijma.mvc.serial.Serial;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,6 +12,7 @@ public class Model {
     private static final int SLOTS = 2;
     private static final int FUNCTIONS = 13; // F0-F12
 
+    public final Serial serial;
     public final Event<Throttle> throttleChanged = new Event<>();
     public final Event<List<String>> msg = new Event<>();
     public final Event<Boolean> powerChanged = new Event<>();
@@ -24,10 +24,8 @@ public class Model {
     private final Throttle[] slots = new Throttle[SLOTS];
     private final ArrayList<String> msgs = new ArrayList<>();
     private boolean power = false;
-    private final AbstractSerial serial;
 
-    public Model(AbstractSerial serial) {
-        // attach to receive byte from serial port
+    public Model(Serial serial) {
         this.serial = serial;
     }
 

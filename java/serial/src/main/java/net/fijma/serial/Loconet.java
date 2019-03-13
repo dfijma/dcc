@@ -1,5 +1,7 @@
 package net.fijma.serial;
 
+import net.fijma.mvc.Event;
+
 import java.util.Arrays;
 import java.util.stream.Collectors;
 

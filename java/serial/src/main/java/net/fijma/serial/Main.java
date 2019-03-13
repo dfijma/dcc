@@ -1,16 +1,14 @@
 package net.fijma.serial;
 
+import net.fijma.mvc.Application;
+import net.fijma.mvc.serial.Serial;
 import net.fijma.serial.model.Model;
-import net.fijma.serial.tui.Controller;
+import net.fijma.serial.tui.MainView;
+import net.fijma.serial.tui.SerialController;
+import net.fijma.serial.tui.ThrottleView;
 import org.apache.commons.cli.*;
 
-import java.io.Console;
-import java.io.IOException;
-
-public class Main  {
-    private volatile boolean run = true;
-    private Event<Integer> keyAvailable = new Event<>();
-    private Serial serial = new Serial();
+public class Main extends Application {
 
     private static void usage(Options options) {
         HelpFormatter formatter = new HelpFormatter();
@@ -18,7 +16,12 @@ public class Main  {
         System.exit(1);
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
+        new Main().init(args);
+    }
+
+    private void init(String[] args) throws Exception {
+
         Options options = new Options();
         options.addOption("p", false, "probe serial ports");
         options.addOption(Option.builder("d").optionalArg(false).hasArg().argName("device").desc("serial port device").build());
@@ -43,56 +46,27 @@ public class Main  {
             usage(options);
         }
 
-        try {
-            System.out.println("start using: " + device);
-            new Main().run(device);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        System.out.println("start using: " + device);
+        exec(device);
     }
 
-    private void run(String device) throws Exception {
+    private void exec(String device) throws Exception {
+        // register optional module(s)
+        registerModule(new net.fijma.mvc.serial.Serial(this,device));
+
         // Setup model
-        Model model = new Model(serial);
+        Model model = new Model(getModule(Serial.class));
 
-        // Setup controller and view
-        Controller controller = Controller.setup(model, keyAvailable, serial);
+        // create views
+        ThrottleView leftView = new ThrottleView(model, 0); // TODO mainView can set these up
+        ThrottleView rightView = new ThrottleView(model, 1);
+        MainView view = new MainView(model, leftView, rightView);
 
-        // start serial communication
-        serial.start(device);
+        // create controller
+        SerialController controller = new SerialController(this, model, view, leftView, rightView);
 
-        // start reading the keyboard
-        Thread kb = new Thread(this::keyboardLoop);
-        kb.start();
-
-        // run controller on main thread until it terminates
-        controller.run();
-
-        // wait for keyboard loop to stop
-        run = false;
-        while (true) {
-            try {
-                kb.join();
-                break;
-            } catch (InterruptedException ignored) { }
-        }
-
-        serial.stop();
+        run(controller);
     }
 
-    // http://develorium.com/2016/03/unbuffered-standard-input-in-java-console-applications/
-    private void keyboardLoop() {
-        Console console = System.console();
-        while (run) {
-            try {
-                boolean a = console.reader().ready();
-                if (!a) {
-                    Thread.sleep(10);
-                    continue;
-                }
-                keyAvailable.trigger(console.reader().read());
-            } catch (IOException | InterruptedException ignored) {  }
-        }
-    }
 
 }

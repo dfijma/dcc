@@ -1,9 +1,10 @@
 package net.fijma.serial.tui;
 
-import net.fijma.serial.Event;
+import net.fijma.mvc.Event;
+import net.fijma.mvc.View;
 import net.fijma.serial.model.Model;
 
-public class ThrottleView extends AbstractView {
+public class ThrottleView extends View<Model> {
 
     final Event<Model.Throttle> up = new Event<>();
     final Event<Model.Throttle> down = new Event<>();
@@ -25,7 +26,7 @@ public class ThrottleView extends AbstractView {
     private int address = 0;
     private int nextFunctionShift = 0;
 
-    ThrottleView(Model model, int pos) {
+    public ThrottleView(Model model, int pos) {
         super(model);
         this.pos = pos;
     }

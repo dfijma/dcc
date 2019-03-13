@@ -1,18 +1,19 @@
 package net.fijma.serial.tui;
 
+import net.fijma.mvc.View;
 import net.fijma.serial.model.Model;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-public class MainView extends AbstractView {
+public class MainView extends View<Model> {
 
     // aggregation combination of views
-    private final List<AbstractView> views;
+    private final List<View> views;
     private int currentView;
 
-    MainView(Model model, AbstractView... views) {
+    public MainView(Model model, View... views) {
         super(model);
         this.views = new ArrayList<>();
         Collections.addAll(this.views, views);
@@ -70,7 +71,7 @@ public class MainView extends AbstractView {
 
         onPowerChanged(model.power());
 
-        for (AbstractView v: views) v.draw();
+        for (View v: views) v.draw();
     }
 
     @Override
