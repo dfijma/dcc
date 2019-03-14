@@ -12,6 +12,9 @@ public class Loconet {
     private int length=0;
     private int remaining = 0;
 
+    private static final String ADR = "ADR";
+    private static final String SLOT = "SLOT";
+
     private int opcodeLength(int x) {
         // if x denotes opcode (msb set), that is, start of instruction, return length of instruction else zero
         // 1000 0000, 0x80 (length 2)
@@ -27,12 +30,21 @@ public class Loconet {
                 return 6;
             case 0xE0:
                 return 255; // var
+            default:
+                return 0; // no opcode
         }
-        return 0; // no opcode
     }
 
-    private String hexString(int buffer[], int length) {
-        return Arrays.stream(buffer).limit(length).mapToObj((b)->String.format("%02x", b)).collect(Collectors.joining(" "));
+    private static String asHex(int x) {
+        return String.format("0x%02X", x);
+    }
+
+    private static String formatAddress(int low, int high) {
+        return asHex(high) + "," + asHex(low) + "=" + (high*128+low);
+    }
+
+    private String hexString(int[] buffer, int length) {
+        return Arrays.stream(buffer).limit(length).mapToObj(Loconet::asHex).collect(Collectors.joining(" "));
     }
 
     public void pushByte(int b) {
@@ -41,15 +53,11 @@ public class Loconet {
         int opcodeLength = opcodeLength(b);
 
         // if we expect start of new instruction, but did not get it, discard this byte
-        if (remaining == 0 && opcodeLength == 0) {
-            // System.out.println("skipping lone byte, " + b);
-            return;
-        }
+        if (remaining == 0 && opcodeLength == 0) return;
 
         // if this byte starts a new instruction, while previous one is incomplete,
         // discard the current instruction and start a new one
         if (remaining > 0 && opcodeLength > 0) {
-            // System.out.println("skipping unclosed bytes " + hexString(bs, length));
             length = 0;
             remaining = 0;
         }
@@ -147,12 +155,7 @@ public class Loconet {
 
         */
 
-    private static String formatAddress(int low, int high) {
-        return String.format("0x%02X", high) +
-                String.format(",0x%02X", low) + "=" + (high*128+low);
-    }
-
-    private String decode(int buffer[], int length) {
+    private String decode(int[] buffer, int length) {
         // we can assume length of buffer is correct, as we read exactly the required amount of bytes before calling this function
 
         StringBuilder sb = new StringBuilder(opcodeName(buffer[0]));
@@ -173,37 +176,37 @@ public class Loconet {
                 break;
             // 4  byte instructions:
             case 0xA0:
-                sb.append("(SLOT=").append(buffer[1]).
+                sb.append("(").append(SLOT).append("=").append(buffer[1]).
                         append(",SPD=").append(buffer[2]).append(")");
                 break;
             case 0xA1:
-                sb.append("(SLOT=").append(buffer[1]).
+                sb.append("(").append(SLOT).append("=").append(buffer[1]).
                         append(",DIR=").append((buffer[2] & 0x20) == 0x20 ? "BACKWARDS" : "FORWARDS").
                         append(",F0F4F3F2F1=").append(Integer.toBinaryString(buffer[2] & 0x1F)).append(")");
                 break;
             case 0xBF:
             case 0xBE:
-                sb.append("(ADR=").append(formatAddress(buffer[2], buffer[1])).append(")");
+                sb.append("(").append(ADR).append("=").append(formatAddress(buffer[2], buffer[1])).append(")");
                 break;
             case 0xBC:
-                sb.append("(SW1=").append(String.format("0x%02X", buffer[1])).
-                        append(",SW2=").append(String.format("0x%02X", buffer[2])).append(")");
+                sb.append("(SW1=").append(asHex(buffer[1])).
+                        append(",SW2=").append(asHex(buffer[2])).append(")");
                 break;
             case 0xBB:
                 sb.append("(SLOT=").append(buffer[1]).
-                        append(",ZERO=").append(String.format("0x%02X", buffer[2])).append(")");
+                        append(",ZERO=").append(asHex(buffer[2])).append(")");
                 break;
             case 0xBA:
                 sb.append("(SRC=").append(buffer[1]).
                         append(",DST=").append(buffer[2]).append(")");
                 break;
             case 0xB5:
-                sb.append("(SLOT=").append(buffer[1]).
-                        append(",STAT1=").append(String.format("0x%02X", buffer[2])).append(")");
+                sb.append("(").append(SLOT).append("=").append(buffer[1]).
+                        append(",STAT1=").append(asHex(buffer[2])).append(")");
                 break;
             case 0xB4:
                 sb.append("(LOPC=").append(opcodeName(buffer[1] | 0x80)).
-                        append(",ACK1=").append(String.format("0x%02X", buffer[2])).append(")");
+                        append(",ACK1=").append(asHex(buffer[2])).append(")");
                 break;
             case 0xB2: {
                 boolean x = (buffer[2] & 0b0100_0000) != 0;
@@ -224,7 +227,7 @@ public class Loconet {
             case 0xEF:
             case 0xE7:
                 if (buffer[1] == 0x0E) {
-                    sb.append("(SLOT=").append(buffer[2]).
+                    sb.append("(").append(SLOT).append("=").append(buffer[2]).
                             append(",STAT=").append(buffer[3]).
                             append(",ADR=").append(formatAddress(buffer[4], buffer[9])).append(", ETC)");
                 } else {
@@ -233,9 +236,9 @@ public class Loconet {
                 break;
             case 0xE6:
                 if (buffer[1] == 0x15) {
-                    sb.append("(SLOT=").append(buffer[3]).
+                    sb.append("(").append(SLOT).append("=").append(buffer[3]).
                             append(",STAT=").append(buffer[4]).
-                            append(",ADR=").append(formatAddress(buffer[5], buffer[6])).append(", ETC)");
+                            append(",").append(ADR).append("=").append(formatAddress(buffer[5], buffer[6])).append(", ETC)");
                 } else {
                     sb.append("(unexpected length=").append(buffer[1]).append(")");
                 }
@@ -253,7 +256,8 @@ public class Loconet {
         }
         checksum = ~checksum & 0xFF;
         if (checksum != buffer[length-1]) {
-            sb.append(" invalid checksum, expected:").append(String.format("%02X", buffer[length-1])).append(", actual:").append(String.format("%02X", checksum));
+            sb.append(" invalid checksum, expected:").append(asHex(buffer[length-1])).append(", actual:")
+                    .append(asHex(checksum));
         }
 
         return sb.toString();

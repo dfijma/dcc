@@ -41,7 +41,7 @@ public class ThrottleView extends View<Model> {
     public void draw() {
         int baseCol = 1+pos*59;
 
-    String pict[] = new String[] {
+        final String[] pict = new String[] {
 "+---------+---------+",
 "| adr ----|  sl --  |",
 "+---------+----+----+",
@@ -59,7 +59,7 @@ public class ThrottleView extends View<Model> {
         int speedColOffset = 6;
         int directionColOffset = 12;
         int flColOffset = 18;
-        int fColOffset[] = new int[] { 4, 9, 14, 19};
+        int[] fColOffset = new int[] { 4, 9, 14, 19};
 
         for (int i=1; i<= pict.length; ++i) {
             setRC(i, baseCol);
@@ -170,8 +170,12 @@ public class ThrottleView extends View<Model> {
                 case 69: // E
                 case 101:
                     functionShift = 2;
+                    break;
                 case 32: // Space, toggle direction
                     sw.trigger(throttle);
+                    break;
+                default:
+                    // intentionally left empty
                     break;
             }
             nextFunctionShift = functionShift;

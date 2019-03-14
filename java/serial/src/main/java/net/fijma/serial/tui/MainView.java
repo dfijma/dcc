@@ -17,7 +17,7 @@ public class MainView extends View<Model> {
         super(model);
         this.views = new ArrayList<>();
         Collections.addAll(this.views, views);
-        if (this.views.size() < 1) throw new IllegalArgumentException("at least on subview required");
+        if (this.views.isEmpty()) throw new IllegalArgumentException("at least on subview required");
         currentView = 0;
     }
 
@@ -39,7 +39,8 @@ public class MainView extends View<Model> {
 
     @Override
     public void draw() {
-        String pict[] = new String[] {
+        // TODO: read this from file
+        final String[] pict = new String[] {
 "+---------------------------------+----------+---------------------------------+",
 "|                                 | pwr: ONF |                                 |",
 "|                                 +----------+                                 |",
@@ -97,12 +98,10 @@ public class MainView extends View<Model> {
         case 77: // M
         case 109:
             model.set_OPC_SW_REQ(0, false, true);
-            // model.set_OPC_SW_REQ(0, false, false);
             break;
         case 78: // N
         case 110:
             model.set_OPC_SW_REQ(0, true, true);
-            // model.set_OPC_SW_REQ(0, true, false);
             break;
         default:
             views.get(currentView).key(k);

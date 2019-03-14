@@ -1,16 +1,23 @@
 package net.fijma.serial;
 
+import net.fijma.mvc.serial.Serial;
 import net.fijma.serial.model.Model;
 import org.junit.Test;
+import static org.mockito.Mockito.*;
 
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.*;
 
 public class MainTest {
 
-    @Test public void testMain() {
-        Model m = new Model(null);
+    @Test public void testMain() throws IOException {
+
+        Serial s = mock(Serial.class);
+        doNothing().when(s).write(anyString());
+
+        Model m = new Model(s);
         Model.Throttle t = m.getThrottleFor(23);
         assertEquals("throttle address",  23, t.address);
 

@@ -9,8 +9,11 @@ import java.util.List;
 
 public class Model {
 
-    private static final int SLOTS = 2;
+    private static final int NSLOTS = 2;
     private static final int FUNCTIONS = 13; // F0-F12
+
+    private static final String NO_SLOTS = "No free slots";
+    private static final String IO_ERROR = "IO error";
 
     public final Serial serial;
     public final Event<Throttle> throttleChanged = new Event<>();
@@ -20,8 +23,8 @@ public class Model {
     // Very nice discussion of a basic implementation of MVC in JavaAhumScript:
     // https://medium.com/@ToddZebert/a-walk-through-of-a-simple-javascript-mvc-implementation-c188a69138dc
 
-    // basically, model is number of throttles and a msg ring
-    private final Throttle[] slots = new Throttle[SLOTS];
+    // basically, model is number of throttles and a onMsg ring
+    private final Throttle[] slots = new Throttle[NSLOTS];
     private final ArrayList<String> msgs = new ArrayList<>();
     private boolean power = false;
 
@@ -32,10 +35,10 @@ public class Model {
     public Throttle getThrottleFor(int address) {
         // get or create throttle for address, while SLOTS last
         int i=0;
-        while (i<SLOTS && slots[i] != null && slots[i].address!= address) ++i;
-        if (i>=SLOTS) {
+        while (i<NSLOTS && slots[i] != null && slots[i].address!= address) ++i;
+        if (i>=NSLOTS) {
             // no more free slots
-            msg("NO FREE SLOTS");
+            onMsg(NO_SLOTS);
             return errorThrottle;
         }
         if (slots[i] == null) {
@@ -48,7 +51,7 @@ public class Model {
     }
 
     // add msg
-    public void msg(String s) {
+    public void onMsg(String s) {
         if (msgs.size() > 100) msgs.remove(msgs.size()-1);
         msgs.add(0, s);
         msg.trigger(msgs);
@@ -68,11 +71,11 @@ public class Model {
             } else {
                 sb.append("O"); // power off command
             }
-            msg(sb.toString());
+            onMsg(sb.toString());
             sb.append("\n");
             serial.write(sb.toString());
         } catch (IOException e) {
-            msg("IO ERROR");
+            onMsg(IO_ERROR);
         }
 
         powerChanged.trigger(this.power);
@@ -80,7 +83,7 @@ public class Model {
 
     public void set_OPC_SW_REQ(int adr, boolean dir, boolean on) {
         try {
-            StringBuffer sb = new StringBuffer("L B0 ");
+            StringBuilder sb = new StringBuilder("L B0 ");
             int sw1 = adr / 16; // high bits of address
             int sw2 = adr % 16; // low bits of address
             if (dir) {
@@ -90,18 +93,18 @@ public class Model {
                 sw2 = sw2 | 0b0001_0000;
             }
             sb.append(String.format("%02X", sw1)).append(" ").append(String.format("%02X", sw2));
-            msg(sb.toString());
+            onMsg(sb.toString());
             sb.append("\n");
             serial.write(sb.toString());
         } catch (IOException e) {
-            msg("IO ERROR");
+            onMsg(IO_ERROR);
         }
     }
 
     // Poor little controller expects order FL-F4-F3-F2-F1-F8-F7-F6-F5-F12-F11-F10-F9
     // We have them in order FL-F1-F2-F3-F4-F5-F6-F7-F8-F9-F10-F11-F12
     // Let us do the heavy lifting
-    static private final int functionBitReorder[] = {
+    private static final int[] functionBitReorder = {
             0,
             4,
             3,
@@ -125,11 +128,11 @@ public class Model {
             sb.append("S").append(t.slot).append(" ").append(t.address).append(" ").append(t.speed)
                     .append(" ").append(t.direction ? "1" : "0").append(" ");
             for (int i=0; i< FUNCTIONS; ++i) sb.append(t.f[functionBitReorder[i]] ? "1" : "0");
-            msg(sb.toString());
+            onMsg(sb.toString());
             sb.append("\n");
             serial.write(sb.toString());
         } catch (IOException e) {
-            msg("IO ERROR");
+            onMsg(IO_ERROR);
         }
     }
 

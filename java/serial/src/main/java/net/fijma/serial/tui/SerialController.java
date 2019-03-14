@@ -11,12 +11,12 @@ import net.fijma.serial.model.Model;
 
 public class SerialController extends Controller<Main, Model, MainView> {
 
-    private Loconet ln = new Loconet(); // TODO: loconet msg's should run through app queue, too
+    private Loconet ln = new Loconet(); // TODO: loconet onMsg's should run through app queue, too
 
     public SerialController(Main app, Model model, MainView view, ThrottleView leftView, ThrottleView rightView) {
         super(app, model, view);
 
-        ln.decoded.attach(model::msg);
+        ln.decoded.attach(model::onMsg);
         // wire model -> views
         model.throttleChanged.attach(leftView::onUpdate);
         model.throttleChanged.attach(rightView::onUpdate);
@@ -64,13 +64,13 @@ public class SerialController extends Controller<Main, Model, MainView> {
                     } catch (NumberFormatException ignored) { }
                 }
             } else if (line.startsWith("POFF")) {
-                model.msg("power overload, switched off");
+                model.onMsg("power overload, switched off");
                 model.setPower(false);
             } else if (line.contains("HELO")) {
                 // contains, not "startsWith", as initial message sometimes start with one or two chars of garbage
-                model.msg("controller initialized");
+                model.onMsg("controller initialized");
             } else {
-                model.msg(line);
+                model.onMsg(line);
             }
         }
         return true;
