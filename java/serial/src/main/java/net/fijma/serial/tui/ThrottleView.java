@@ -26,7 +26,7 @@ public class ThrottleView extends View<Model> {
     private int address = 0;
     private int nextFunctionShift = 0;
 
-    public ThrottleView(Model model, int pos) {
+    ThrottleView(Model model, int pos) {
         super(model);
         this.pos = pos;
     }

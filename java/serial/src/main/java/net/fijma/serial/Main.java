@@ -58,12 +58,10 @@ public class Main extends Application {
         Model model = new Model(getModule(Serial.class));
 
         // create views
-        ThrottleView leftView = new ThrottleView(model, 0); // TODO mainView can set these up
-        ThrottleView rightView = new ThrottleView(model, 1);
-        MainView view = new MainView(model, leftView, rightView);
+        MainView view = new MainView(model);
 
         // create controller
-        SerialController controller = new SerialController(this, model, view, leftView, rightView);
+        SerialController controller = new SerialController(this, model, view);
 
         run(controller);
     }

@@ -2,17 +2,18 @@ package net.fijma.serial;
 
 import net.fijma.mvc.serial.Serial;
 import net.fijma.serial.model.Model;
-import org.junit.Test;
-import static org.mockito.Mockito.*;
-
 import java.io.IOException;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.Test;
 
 import static org.junit.Assert.*;
+import static org.mockito.Mockito.*;
 
 public class MainTest {
 
-    @Test public void testMain() throws IOException {
+    @Test
+    public
+    void testMain() throws IOException {
 
         Serial s = mock(Serial.class);
         doNothing().when(s).write(anyString());

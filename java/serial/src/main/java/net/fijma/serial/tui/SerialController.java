@@ -13,25 +13,26 @@ public class SerialController extends Controller<Main, Model, MainView> {
 
     private Loconet ln = new Loconet(); // TODO: loconet onMsg's should run through app queue, too
 
-    public SerialController(Main app, Model model, MainView view, ThrottleView leftView, ThrottleView rightView) {
+    public SerialController(Main app, Model model, MainView view) {
         super(app, model, view);
 
         ln.decoded.attach(model::onMsg);
         // wire model -> views
-        model.throttleChanged.attach(leftView::onUpdate);
-        model.throttleChanged.attach(rightView::onUpdate);
+        model.throttleChanged.attach(view.leftView::onUpdate);
+        model.throttleChanged.attach(view.rightView::onUpdate);
         model.msg.attach(view::onMsg);
         model.powerChanged.attach(view::onPowerChanged);
 
         // wire views -> controller
-        leftView.up.attach(this::onUp);
-        leftView.down.attach(this::onDown);
-        leftView.sw.attach(this::onSwitch);
-        leftView.fn.attach(this::onFn);
-        rightView.up.attach(this::onUp);
-        rightView.down.attach(this::onDown);
-        rightView.sw.attach(this::onSwitch);
-        rightView.fn.attach(this::onFn);
+        view.leftView.up.attach(this::onUp);
+        view.leftView.down.attach(this::onDown);
+        view.leftView.sw.attach(this::onSwitch);
+        view.leftView.fn.attach(this::onFn);
+
+        view.rightView.up.attach(this::onUp);
+        view.rightView.down.attach(this::onDown);
+        view.rightView.sw.attach(this::onSwitch);
+        view.rightView.fn.attach(this::onFn);
     }
 
     private void onDown(Model.Throttle throttle) {
@@ -61,7 +62,7 @@ public class SerialController extends Controller<Main, Model, MainView> {
                 for (String s : line.split(" ")) {
                     try {
                         ln.pushByte(Integer.parseInt(s, 16));
-                    } catch (NumberFormatException ignored) { }
+                    } catch (NumberFormatException ignored) { ; }
                 }
             } else if (line.startsWith("POFF")) {
                 model.onMsg("power overload, switched off");

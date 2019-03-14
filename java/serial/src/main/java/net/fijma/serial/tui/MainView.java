@@ -4,19 +4,26 @@ import net.fijma.mvc.View;
 import net.fijma.serial.model.Model;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public class MainView extends View<Model> {
 
     // aggregation combination of views
     private final List<View> views;
+    public final ThrottleView leftView;
+    public final ThrottleView rightView;
     private int currentView;
 
-    public MainView(Model model, View... views) {
+    public MainView(Model model) {
         super(model);
+
+        leftView = new ThrottleView(model, 0);
+        rightView = new ThrottleView(model, 1);
+
         this.views = new ArrayList<>();
-        Collections.addAll(this.views, views);
+        views.add(leftView);
+        views.add(rightView);
+
         if (this.views.isEmpty()) throw new IllegalArgumentException("at least on subview required");
         currentView = 0;
     }
