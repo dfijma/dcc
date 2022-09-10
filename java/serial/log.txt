@@ -1,0 +1,10 @@
+Mar 14, 2019 3:00:25 PM net.fijma.mvc.Application configureLogger
+INFO: log configured 
+Mar 14, 2019 3:00:25 PM net.fijma.serial.Main exec
+INFO: starting
+Mar 14, 2019 3:00:25 PM net.fijma.mvc.Application run
+INFO: starting: Serial
+Mar 14, 2019 3:00:25 PM net.fijma.mvc.serial.Serial start
+INFO: starting serial
+Mar 14, 2019 3:00:26 PM net.fijma.mvc.Application run
+INFO: starting keyboard loop
