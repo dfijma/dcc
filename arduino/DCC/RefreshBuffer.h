@@ -59,7 +59,7 @@ class Slot : public BitStream {
       activePacket = &packets[0];
       updatePacket = &packets[1];
     } 
-    Packet& update() { return *updatePacket; } // updatable packet for new cmds
+    Packet& update() { return *updatePacket; } // updatable packet for new cmds // TODO!!!! FIXME!!!! The packet needs to be reset before new commands are loaded!!!
     void flip(); // flip update packet into active
     boolean getBit(int bit) { return activePacket->getBit(bit); }
     int length() { return activePacket->length(); }
@@ -90,7 +90,3 @@ class RefreshBuffer {
     byte currentSlot;
     byte currentBit;
 };
-
-
-
-
